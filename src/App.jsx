@@ -1,95 +1,144 @@
 import { useState, useEffect } from "react";
-
-function Section({ title, tasks, setTasks }) {
-  const addTask = () => {
-    const text = prompt("Add new item:");
-    if (!text) return;
-    setTasks([...tasks, { text, completed: false }]);
-  };
-
-  const toggleTask = (index) => {
-    const updated = [...tasks];
-    updated[index].completed = !updated[index].completed;
-    setTasks(updated);
-  };
-
-  return (
-    <div style={styles.section}>
-      <h2 style={styles.sectionTitle}>{title}</h2>
-      {tasks.map((task, index) => (
-        <div key={index} style={styles.taskRow}>
-          <span
-            onClick={() => toggleTask(index)}
-            style={{
-              ...styles.taskText,
-              textDecoration: task.completed ? "line-through" : "none",
-              opacity: task.completed ? 0.5 : 1,
-            }}
-          >
-            {task.text}
-          </span>
-        </div>
-      ))}
-      <button style={styles.button} onClick={addTask}>
-        + Add
-      </button>
-    </div>
-  );
-}
+import "./App.css";
+import { supabase } from "./supabase";
 
 export default function App() {
-  const [beauty, setBeauty] = useState([]);
-  const [vitamins, setVitamins] = useState([]);
-  const [meals, setMeals] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [newTask, setNewTask] = useState("");
+  const [category, setCategory] = useState("beauty");
+
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  async function loadTasks() {
+    const { data, error } = await supabase.from("Glow Table").select("*");
+
+    if (error) {
+      console.error("Load error:", error);
+      return;
+    }
+
+    setTasks(data || []);
+  }
+
+  async function addTask() {
+  if (!newTask.trim()) return;
+
+  console.log("addTask running");
+
+  const { error } = await supabase.from("Glow Table").insert([
+    {
+      title: newTask,
+      category,
+      completed: false,
+      streak: 0,
+    },
+  ]);
+
+  if (error) {
+    console.error("Insert error:", error);
+    return;
+  }
+
+  setNewTask("");
+  loadTasks();
+}
+
+  async function toggleTask(id, completed) {
+    const { error } = await supabase
+      .from("Glow Table")
+      .update({ completed: !completed })
+      .eq("id", id);
+
+    if (error) {
+      console.error("Update error:", error);
+      return;
+    }
+
+    loadTasks();
+  }
+
+  const activeTasks = tasks.filter((t) => !t.completed);
+  const completedTasks = tasks.filter((t) => t.completed);
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>Daily Glow Routine ✨</h1>
+    <div className="container">
+      <h1 className="title">Daily Glow Routine ✨</h1>
 
-      <Section title="Beauty Routine 💄" tasks={beauty} setTasks={setBeauty} />
-      <Section title="Vitamins 💊" tasks={vitamins} setTasks={setVitamins} />
-      <Section title="Meals 🥗" tasks={meals} setTasks={setMeals} />
+      <div className="add-box">
+        <input
+          className="input"
+          value={newTask}
+          onChange={(e) => setNewTask(e.target.value)}
+          placeholder="Add task..."
+        />
+
+        <select
+          className="input"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          <option value="beauty">Beauty</option>
+          <option value="vitamins">Vitamins</option>
+          <option value="exercise">Exercise</option>
+          <option value="eating">Eating</option>
+        </select>
+  <button
+    type="button"
+    className="button"
+    onClick={() => {
+      console.log("clicked");
+      addTask();
+    }}
+  >
+    Add
+  </button>
+      </div>
+
+      {/* TO DO SECTION */}
+      <div className="section">
+        <h2 className="section-title">To Do</h2>
+
+        {activeTasks.length === 0 && <p className="empty">No tasks yet.</p>}
+
+        {activeTasks.map((task) => (
+          <div key={task.id} className="task-row">
+            <label className="task-label">
+              <input
+                type="checkbox"
+                checked={task.completed}
+                onChange={() => toggleTask(task.id, task.completed)}
+              />
+              <span className="task-text">
+                {task.title} <span className="category-tag">({task.category})</span>
+              </span>
+            </label>
+          </div>
+        ))}
+      </div>
+
+      {/* COMPLETED SECTION */}
+      <div className="section">
+        <h2 className="section-title">Completed 💖</h2>
+
+        {completedTasks.length === 0 && <p className="empty">Nothing completed yet.</p>}
+
+        {completedTasks.map((task) => (
+          <div key={task.id} className="task-row completed">
+            <label className="task-label">
+              <input
+                type="checkbox"
+                checked={task.completed}
+                onChange={() => toggleTask(task.id, task.completed)}
+              />
+              <span className="task-text">
+                {task.title} <span className="category-tag">({task.category})</span>
+              </span>
+            </label>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
-
-const styles = {
- container: {
-  backgroundColor: "#ffe6f0",
-  minHeight: "100vh",
-  padding: "20px 15px",
-  fontFamily: "'Playfair Display', serif",
-  maxWidth: 600,
-  margin: "0 auto",
-},
-  title: {
-    fontFamily: "'Great Vibes', cursive",
-    fontSize: 48,
-    textAlign: "center",
-    color: "#ff4da6",
-  },
-  section: {
-    background: "white",
-    padding: 20,
-    marginBottom: 20,
-    borderRadius: 20,
-    boxShadow: "0 4px 12px rgba(255, 105, 180, 0.2)",
-  },
-  sectionTitle: {
-    color: "#ff4da6",
-  },
-  taskRow: {
-    marginBottom: 8,
-  },
-  taskText: {
-    cursor: "pointer",
-  },
-  button: {
-    backgroundColor: "#ff99cc",
-    border: "none",
-    padding: "8px 12px",
-    borderRadius: 10,
-    cursor: "pointer",
-    color: "white",
-  },
-};
