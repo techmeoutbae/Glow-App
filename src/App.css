@@ -1,70 +1,163 @@
+/* ===== GLOBAL ===== */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #fff7fb;
+  color: #4a002b;
+}
+
 .container {
-  background-color: #ffe6f0;
-  min-height: 100vh;
-  padding: 20px 15px;
-  font-family: "Playfair Display", serif;
-  max-width: 600px;
+  max-width: 900px;
   margin: 0 auto;
+  padding: 16px;
 }
 
+/* ===== TITLE ===== */
 .title {
-  font-family: "Great Vibes", cursive;
-  font-size: 48px;
   text-align: center;
-  color: #ff4da6;
+  color: #c21873;
+  margin-bottom: 16px;
 }
 
+/* ===== ADD BOX ===== */
 .add-box {
+  background: #ffe4f2;
+  padding: 12px;
+  border-radius: 12px;
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .input {
-  flex: 1;
   padding: 8px;
   border-radius: 8px;
-  border: 1px solid #ff99cc;
-  font-family: inherit;
+  border: 1px solid #f1b7d3;
+  font-size: 1rem;
 }
 
 .button {
-  background-color: #ff99cc;
+  background: #d63384;
+  color: white;
   border: none;
-  padding: 8px 12px;
+  padding: 10px;
   border-radius: 10px;
   cursor: pointer;
-  color: white;
-  font-family: inherit;
 }
 
-.section {
-  background: white;
-  padding: 20px;
-  margin-bottom: 20px;
-  border-radius: 20px;
-  box-shadow: 0 4px 12px rgba(255, 105, 180, 0.2);
+.button:hover {
+  background: #b8266e;
 }
 
-.section-title {
-  color: #ff4da6;
+/* ===== DAY CHECKBOXES (SLIDE) ===== */
+.day-checkboxes {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease, padding 0.25s ease;
 }
 
+.day-checkboxes.expanded {
+  max-height: 200px;
+  padding-top: 8px;
+}
+
+.day-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff0f7;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-right: 6px;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
+
+/* ===== CALENDAR GRID ===== */
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+/* ===== DAY BOX ===== */
+.day-box {
+  background: #ffe4f2;
+  border-radius: 14px;
+  padding: 12px;
+  min-height: 140px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.day-box:nth-child(even) {
+  background: #ffd1e8;
+}
+
+.day-box h3 {
+  margin-top: 0;
+  color: #a1005d;
+}
+
+/* ===== TASK ROW ===== */
 .task-row {
-  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  border-radius: 10px;
+  background: white;
+  margin-bottom: 6px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.task-row.completed {
+  opacity: 0.7;
+  transform: translateY(4px);
 }
 
 .task-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #333;
+  gap: 10px;
+}
+
+.task-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #d63384;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.task-label input[type="checkbox"]:checked {
+  transform: scale(1.15);
 }
 
 .task-text {
-  cursor: pointer;
+  font-size: 1rem;
 }
 
+/* ===== RECURRENCE TAG ===== */
+.recurrence-tag {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  background: #ffe4f2;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: #a1005d;
+}
+
+/* ===== EMPTY STATE ===== */
 .empty {
   color: #777;
+  font-size: 0.9rem;
+}
+
+/* ===== SECTION ===== */
+.section {
+  margin-bottom: 18px;
+}
+
+.section-title {
+  color: #c21873;
 }
