@@ -15,8 +15,30 @@ body {
 /* ===== TITLE ===== */
 .title {
   text-align: center;
-  color: #c21873;
-  margin-bottom: 16px;
+  font-family: "Parisienne", cursive;
+  font-size: 3rem;
+  color: #d63384;
+  margin-bottom: 20px;
+  letter-spacing: 1px;
+
+  /* sparkle effect */
+  text-shadow:
+    0 0 6px rgba(255, 182, 213, 0.6),
+    0 0 12px rgba(255, 182, 213, 0.4);
+  animation: sparkle 2.5s infinite alternate;
+}
+
+@keyframes sparkle {
+  0% {
+    text-shadow:
+      0 0 4px rgba(255, 182, 213, 0.4),
+      0 0 8px rgba(255, 182, 213, 0.2);
+  }
+  100% {
+    text-shadow:
+      0 0 10px rgba(255, 182, 213, 0.8),
+      0 0 18px rgba(255, 182, 213, 0.6);
+  }
 }
 
 /* ===== ADD BOX ===== */

@@ -97,7 +97,7 @@ if (error) {
 
   return (
     <div className="container">
-      <h1 className="title">Daily Glow Routine ✨</h1>
+      <h1 className="title">Daily Glow Routine ✧</h1>
 
 
      <div className="add-box">
