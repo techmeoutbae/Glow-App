@@ -2,6 +2,12 @@ import { useState, useEffect } from "react";
 import "./App.css";
 import { supabase } from "./supabase";
 
+const logError = (operation, result) => {
+  if (result?.error) {
+    console.error(`[${operation}] Error:`, result.error.message, 'Details:', result.error.details, 'Hint:', result.error.hint);
+  }
+};
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +59,7 @@ export default function App() {
             className="input"
             type="email"
             placeholder="Email"
+            name="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -60,6 +67,7 @@ export default function App() {
             className="input"
             type="password"
             placeholder="Password"
+            name="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -165,12 +173,14 @@ function TemplateEditor({ archetype, habits, onUpdate, onAdd, onRemove, onSave, 
               <input
                 className="input"
                 placeholder="Habit title"
+                name={`habitTitle-${idx}`}
                 value={habit.title}
                 onChange={(e) => onUpdate(idx, 'title', e.target.value)}
               />
               <input
                 className="input two-min"
                 placeholder="2-min version"
+                name={`habitTwoMin-${idx}`}
                 value={habit.twoMin || ''}
                 onChange={(e) => onUpdate(idx, 'twoMin', e.target.value)}
               />
@@ -235,7 +245,6 @@ function GlowApp({ session }) {
   const [identities, setIdentities] = useState([]);
   const [archetypes, setArchetypes] = useState([]);
   const [currentPage, setCurrentPage] = useState("daily");
-  const [categories, setCategories] = useState(["Beauty", "Growth", "Health", "Wellness"]);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [showAddIdentity, setShowAddIdentity] = useState(false);
@@ -256,8 +265,20 @@ function GlowApp({ session }) {
   const [tooltipTarget, setTooltipTarget] = useState(null);
   
   // Active archetype profile
-  const [activeArchetype, setActiveArchetype] = useState(null);
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
+  const [activeArchetype, setActiveArchetype] = useState(() => {
+    const saved = localStorage.getItem('activeArchetype');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  // Show all tasks from all archetypes
+  const [showAllTasks, setShowAllTasks] = useState(false);
+
+  // Track which archetypes user has adopted
+  const [adoptedArchetypes, setAdoptedArchetypes] = useState(() => {
+    const saved = localStorage.getItem('adoptedArchetypes');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   
   // Form states
@@ -273,15 +294,56 @@ function GlowApp({ session }) {
   const [newIdentityName, setNewIdentityName] = useState("");
   const [newIdentityEmoji, setNewIdentityEmoji] = useState("✨");
 
-  const categoriesList = ["Beauty", "Growth", "Health", "Wellness", "Mindset"];
+  const categoriesList = ["Beauty", "Growth", "Health", "Wellness", "Mindset", "Work", "School"];
   const days = ["Today", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   
+  // Helper to safely parse days JSON
+  const parseDays = (daysValue) => {
+    if (!daysValue) return [];
+    if (Array.isArray(daysValue)) return daysValue;
+    if (typeof daysValue === 'string') {
+      try { return JSON.parse(daysValue); } catch (e) { return []; }
+    }
+    return [];
+  };
+
+  // Format time to AM/PM
+  const formatTime = (timeStr) => {
+    if (!timeStr) return '';
+    const [hours, mins] = timeStr.split(':');
+    const h = parseInt(hours, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${mins || '00'} ${ampm}`;
+  };
+
+  // Get time of day category
+  const getTimeOfDay = (timeStr) => {
+    if (!timeStr) return 'All Day';
+    const hours = parseInt(timeStr.split(':')[0], 10);
+    if (hours < 12) return 'Morning';
+    if (hours < 17) return 'Afternoon';
+    return 'Evening';
+  };
+
+  // Sort tasks by time
+  const sortByTime = (tasks) => {
+    return [...tasks].sort((a, b) => {
+      if (a.is_all_day && !b.is_all_day) return 1;
+      if (!a.is_all_day && b.is_all_day) return -1;
+      if (!a.time && !b.time) return 0;
+      if (!a.time) return 1;
+      if (!b.time) return -1;
+      return a.time.localeCompare(b.time);
+    });
+  };
+  
   const defaultIdentities = [
-    { id: 'DISCIPLINED_CREATOR', name: 'Disciplined Creator', emoji: '🎯' },
-    { id: 'HEALTHY_WOMAN', name: 'Healthy Woman', emoji: '💎' },
-    { id: 'WEALTH_BUILDER', name: 'Wealth Builder', emoji: '💰' },
-    { id: 'CALM_GROUNDED', name: 'Calm & Grounded', emoji: '🧘' },
-    { id: 'ELITE_PERFORMER', name: 'Elite Performer', emoji: '⚡' },
+    { id: 'DISCIPLINED', name: 'Disciplined', emoji: '🎯' },
+    { id: 'BALANCED', name: 'Balanced', emoji: '⚖️' },
+    { id: 'NOURISHED', name: 'Nourished', emoji: '🥗' },
+    { id: 'GROUNDED', name: 'Grounded', emoji: '🧘' },
+    { id: 'RADIANT', name: 'Radiant', emoji: '✨' },
   ];
 
   useEffect(() => {
@@ -289,34 +351,47 @@ function GlowApp({ session }) {
   }, []);
 
   useEffect(() => {
-    // Only show onboarding on initial signup - when NO identities AND NO tasks
-    if (identities.length === 0 && tasks.length === 0 && archetypes.length > 0 && !hasCompletedOnboarding) {
-      setOnboardingStep('welcome');
-    }
-  }, [identities, tasks, archetypes]);
+    // Only auto-show onboarding on initial load, not when switching archetypes
+    // Skip if we already have tasks OR if archetypes just loaded
+  }, []);
 
   async function loadData() {
-    // Load all tasks without user filter for now
-    const { data: tasksData } = await supabase
-      .from("Tasks")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    setTasks(tasksData || []);
-    console.log("Loaded tasks:", tasksData?.length);
+    try {
+      const { data: tasksData, error: tasksError } = await supabase
+        .from("Tasks")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      
+      logError("Tasks.select", { error: tasksError });
+      setTasks(tasksData || []);
+    } catch (e) { 
+      console.error("Tasks load error:", e); 
+    }
 
-    // Load other data
-    const { data: logsData } = await supabase.from("DayLogs").select("*").limit(10);
-    setDayLogs(logsData || []);
+    try {
+      const result = await supabase.from("DayLogs").select("*").limit(10);
+      logError("DayLogs.select", result);
+      setDayLogs(result.data || []);
+    } catch (e) { /* ignore */ }
 
-    const { data: compLogs } = await supabase.from("completion_logs").select("*").limit(10);
-    setCompletionLogs(compLogs || []);
+    try {
+      const result = await supabase.from("completion_logs").select("*").limit(10);
+      logError("completion_logs.select", result);
+      setCompletionLogs(result.data || []);
+    } catch (e) { /* ignore */ }
 
-    const { data: ids } = await supabase.from("identities").select("*").limit(10);
-    setIdentities(ids || []);
+    try {
+      const result = await supabase.from("identities").select("*").limit(10);
+      logError("identities.select", result);
+      setIdentities(result.data || []);
+    } catch (e) { /* ignore */ }
 
-    const { data: archs } = await supabase.from("archetypes").select("*");
-    setArchetypes(archs || []);
+    try {
+      const result = await supabase.from("archetypes").select("*");
+      logError("archetypes.select", result);
+      setArchetypes(result.data || []);
+    } catch (e) { /* ignore */ }
   }
 
   async function adoptArchetype(archetype) {
@@ -330,59 +405,94 @@ function GlowApp({ session }) {
     setIsAdopting(true);
     
     const identityEmojis = {
-      'Disciplined': '🎯',
-      'Creative': '✨',
-      'Consistent': '🔄',
-      'Fit': '💪',
-      'Nourished': '🥗',
-      'Energetic': '⚡',
-      'Strategic': '♟️',
-      'Financially Aware': '📊',
-      'Focused': '🎯',
-      'Calm': '🧘',
-      'Self-Aware': '🔮',
-      'Balanced': '⚖️',
-      'High Standard': '⭐',
-      'Resilient': '💎'
+      'NOURISHED': '🥗',
+      'RADIANT': '✨',
+      'ENERGIZED': '⚡',
+      'BALANCED': '⚖️',
+      'FOCUSED': '🎯',
+      'CONSISTENT': '🔄',
+      'CREATIVE': '💡',
+      'DISCIPLINED': '📏',
+      'GROUNDED': '🌳',
+      'CALM': '🧘',
+      'MINDFUL': '🧠',
+      'PEACEFUL': '☮️',
+      'FINANCIALLY_AWARE': '💰',
+      'STRATEGIC': '♟️',
+      'ABUNDANT': '🌟',
+      'PROSPEROUS': '💎',
+      'EXCELLENT': '🏆',
+      'DRIVEN': '🚀',
+      'ACHIEVER': '🎯',
+      'TOP_PERFORMER': '⭐',
+      'HARMONIOUS': '🎵',
+      'CENTERED': '⚖️',
+      'WHOLE': '💫',
+      'INTEGRATED': '🔗',
     };
 
     const createdIdentities = [];
+    const userId = session?.user?.id;
+    if (!userId) return;
     
     for (const identityName of selectedArchetype.default_identities) {
-      const { data: newIdentity, error } = await supabase.from("identities").insert({
-        name: identityName,
-        emoji: identityEmojis[identityName] || '✨',
-        user_id: session.user.id,
-      }).select().single();
+      // Check if identity already exists for this user AND archetype
+      const { data: existing } = await supabase
+        .from("identities")
+        .select("*")
+        .eq("name", identityName)
+        .eq("user_id", userId)
+        .eq("archetype_id", selectedArchetype.id)
+        .maybeSingle();
       
-      if (!error && newIdentity) {
-        createdIdentities.push(newIdentity);
+      if (existing) {
+        createdIdentities.push(existing);
+      } else {
+        const result = await supabase.from("identities").insert({
+          name: identityName,
+          emoji: identityEmojis[identityName] || '✨',
+          user_id: userId,
+          archetype_id: selectedArchetype.id,
+        }).select().single();
+        logError("identities.insert", result);
+
+        if (result.data) {
+          createdIdentities.push(result.data);
+        }
       }
     }
 
+    // Track adopted archetype
+    const newAdopted = [...adoptedArchetypes, selectedArchetype];
+    setAdoptedArchetypes(newAdopted);
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
+
     for (const habit of templateHabits) {
-      const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      const category = habit.category || "Growth";
+      const page = (category === "Work" || category === "School") ? "work" : "daily";
+      const habitTime = habit.time || "09:00";
+      const isAllDay = !habit.time;
+      const habitDays = habit.days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
       
-      await supabase.from("Tasks").insert({
+      const result = await supabase.from("Tasks").insert({
         title: habit.title,
-        category: "Growth",
-        completed: false,
-        page: "daily",
-        time: "09:00",
-        is_all_day: false,
-        day: "Monday",
-        days: `{${allDays.join(',')}}`,
+        category: category,
+        page: page,
+        user_id: userId,
+        streak: 0,
         identity_tags: createdIdentities.map(i => i.id),
-        two_minute_version: habit.twoMin || null,
-        user_id: session.user.id,
+        archetype_id: selectedArchetype.id,
+        is_all_day: isAllDay,
+        time: isAllDay ? null : habitTime,
+        days: habitDays,
       });
+      logError("Tasks.insert", result);
     }
 
     setOnboardingStep(null);
     setSelectedArchetype(null);
     setTemplateHabits([]);
     setIsAdopting(false);
-    setHasCompletedOnboarding(true);
     setIdentities([]);
     await loadData();
   }
@@ -408,27 +518,35 @@ function GlowApp({ session }) {
       ? new Date().toLocaleDateString('en-US', { weekday: 'long' })
       : taskDay;
 
-    const { error } = await supabase.from("Tasks").insert({
-      title: newTask,
-      category: taskCategory,
-      completed: false,
-      page: currentPage,
-      time: isAllDay ? null : taskTime,
-      is_all_day: isAllDay,
-      day: actualDay,
-      days: `{${actualDay}}`,
-      identity_tags: identityTags,
-      two_minute_version: twoMinVersion || null,
-      user_id: session.user.id,
-    });
+    // Determine page based on category
+    const page = (taskCategory === "Work" || taskCategory === "School") ? "work" : currentPage;
 
-    if (!error) {
-      setNewTask("");
-      setTwoMinVersion("");
-      setIdentityTags([]);
-      setShowAddHabit(false);
-      loadData();
-    }
+    try {
+      const { error } = await supabase.from("Tasks").insert({
+        title: newTask,
+        category: taskCategory,
+        completed: false,
+        page: page,
+        time: isAllDay ? null : taskTime,
+        is_all_day: isAllDay,
+        day: actualDay,
+        days: [actualDay],
+        identity_tags: identityTags,
+        archetype_id: activeArchetype?.id || null,
+        two_minute_version: twoMinVersion || null,
+        user_id: session?.user?.id,
+        streak: 0,
+      });
+      logError("Tasks.insert (addHabit)", { error });
+
+      if (!error) {
+        setNewTask("");
+        setTwoMinVersion("");
+        setIdentityTags([]);
+        setShowAddHabit(false);
+        loadData();
+      }
+    } catch (e) { console.log("Add habit error:", e); }
   }
 
   async function toggleTask(id, completed) {
@@ -440,20 +558,11 @@ function GlowApp({ session }) {
       return;
     }
 
-    for (const identityId of (task.identity_tags || [])) {
-      await supabase.from("completion_logs").insert({
-        task_id: id,
-        identity_id: identityId,
-        user_id: session.user.id,
-        was_two_minute: false,
-        completed_at: new Date().toISOString(),
-      });
-    }
-
-    await supabase
+    const result = await supabase
       .from("Tasks")
       .update({ completed: true })
       .eq("id", id);
+    logError("Tasks.update (toggleTask)", result);
     
     loadData();
   }
@@ -462,13 +571,14 @@ function GlowApp({ session }) {
     if (!frictionTask) return;
 
     for (const identityId of (frictionTask.identity_tags || [])) {
-      await supabase.from("completion_logs").insert({
+      const result = await supabase.from("completion_logs").insert({
         task_id: frictionTask.id,
         identity_id: identityId,
-        user_id: session.user.id,
+        user_id: session?.user?.id,
         was_two_minute: true,
         completed_at: new Date().toISOString(),
       });
+      logError("completion_logs.insert", result);
     }
 
     await supabase
@@ -488,7 +598,7 @@ function GlowApp({ session }) {
     await supabase.from("completion_logs").insert({
       task_id: frictionTask.id,
       identity_id: frictionTask.identity_tags?.[0] || null,
-      user_id: session.user.id,
+      user_id: session?.user?.id,
       was_two_minute: false,
       friction_reason: frictionReason,
       completed_at: new Date().toISOString(),
@@ -511,7 +621,7 @@ function GlowApp({ session }) {
     await supabase.from("completion_logs").insert({
       task_id: frictionTask.id,
       identity_id: frictionTask.identity_tags?.[0] || null,
-      user_id: session.user.id,
+      user_id: session?.user?.id,
       was_two_minute: false,
       friction_reason: frictionReason || "skipped",
       completed_at: new Date().toISOString(),
@@ -529,7 +639,8 @@ function GlowApp({ session }) {
   }
 
   async function deleteTask(id) {
-    await supabase.from("Tasks").delete().eq("id", id);
+    const result = await supabase.from("Tasks").delete().eq("id", id);
+    logError("Tasks.delete", result);
     loadData();
   }
 
@@ -539,8 +650,10 @@ function GlowApp({ session }) {
     const { error } = await supabase.from("identities").insert({
       name: newIdentityName,
       emoji: newIdentityEmoji,
-      user_id: session.user.id,
+      user_id: session?.user?.id,
+      archetype_id: activeArchetype?.id || null,
     });
+    logError("identities.insert (addIdentity)", { error });
 
     if (!error) {
       setNewIdentityName("");
@@ -551,7 +664,32 @@ function GlowApp({ session }) {
   }
 
   async function deleteIdentity(id) {
-    await supabase.from("identities").delete().eq("id", id);
+    const result = await supabase.from("identities").delete().eq("id", id);
+    logError("identities.delete", result);
+    loadData();
+  }
+
+  async function deleteArchetype(archetype) {
+    const confirmed = confirm(`Are you sure you want to remove "${archetype.name}"? This will also delete all associated tasks. This cannot be undone.`);
+    if (!confirmed) return;
+    
+    // Delete tasks associated with this archetype
+    await supabase.from("Tasks").delete().eq("archetype_id", archetype.id);
+    
+    // Delete identities associated with this archetype
+    await supabase.from("identities").delete().eq("archetype_id", archetype.id);
+    
+    // Remove from adopted archetypes
+    const newAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
+    setAdoptedArchetypes(newAdopted);
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
+    
+    // Clear active archetype if it was this one
+    if (activeArchetype?.id === archetype.id) {
+      setActiveArchetype(null);
+      localStorage.removeItem('activeArchetype');
+    }
+    
     loadData();
   }
 
@@ -563,6 +701,7 @@ function GlowApp({ session }) {
       default_identities: [newIdentityName],
       template_habits: [],
     });
+    logError("archetypes.insert (addUserArchetype)", { error });
     
     if (!error) {
       loadData();
@@ -570,10 +709,54 @@ function GlowApp({ session }) {
   }
 
   async function switchToArchetype(archetype) {
-    setActiveArchetype(archetype);
-    setOnboardingStep('template');
-    setTemplateHabits(archetype.template_habits || []);
-    setSelectedArchetype(archetype);
+    const isAlreadyAdopted = adoptedArchetypes.find(a => a.id === archetype.id);
+    
+    if (isAlreadyAdopted) {
+      // Just switch to the adopted archetype
+      setActiveArchetype(archetype);
+      localStorage.setItem('activeArchetype', JSON.stringify(archetype));
+      setOnboardingStep(null);
+    } else {
+      // New archetype - go to template editor
+      setActiveArchetype(archetype);
+      localStorage.setItem('activeArchetype', JSON.stringify(archetype));
+      setOnboardingStep('template');
+      
+      // Parse template_habits if it's a string
+      let habits = archetype.template_habits;
+      if (typeof habits === 'string') {
+        try {
+          habits = JSON.parse(habits);
+        } catch (e) {
+          habits = [];
+        }
+      }
+      
+      setTemplateHabits(habits || []);
+      setSelectedArchetype(archetype);
+    }
+  }
+
+  async function removeArchetype(archetype) {
+    const confirmed = confirm(`Remove "${archetype.name}" from your profiles? This will also delete all associated tasks. This cannot be undone.`);
+    if (!confirmed) return;
+    
+    // Delete tasks associated with this archetype
+    await supabase.from("Tasks").delete().eq("archetype_id", archetype.id);
+    
+    // Delete identities associated with this archetype
+    await supabase.from("identities").delete().eq("archetype_id", archetype.id);
+    
+    const newAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
+    setAdoptedArchetypes(newAdopted);
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
+    
+    if (activeArchetype?.id === archetype.id) {
+      setActiveArchetype(newAdopted[0] || null);
+      localStorage.setItem('activeArchetype', JSON.stringify(newAdopted[0] || null));
+    }
+    
+    loadData();
   }
 
   const getGlowScore = () => {
@@ -591,18 +774,54 @@ function GlowApp({ session }) {
     return completed.length * 10;
   };
 
-  const identityOptions = identities.length > 0 
-    ? identities.map(i => ({ 
-        ...i, 
-        score: getIdentityScore(i.id) 
-      }))
-    : defaultIdentities.map(i => ({ ...i, score: 0 }));
+  // Get identities based on current view
+  const getIdentityOptions = () => {
+    // If showAllTasks, show identities from all adopted archetypes
+    if (showAllTasks) {
+      const adoptedIds = adoptedArchetypes.map(a => a.id);
+      const filtered = identities.filter(i => !i.archetype_id || adoptedIds.includes(i.archetype_id));
+      return filtered.length > 0 
+        ? filtered.map(i => ({ ...i, score: getIdentityScore(i.id) }))
+        : defaultIdentities.map(i => ({ ...i, score: 0 }));
+    }
+    
+    // Show only identities for active archetype
+    if (activeArchetype) {
+      const filtered = identities.filter(i => i.archetype_id === activeArchetype.id);
+      return filtered.length > 0 
+        ? filtered.map(i => ({ ...i, score: getIdentityScore(i.id) }))
+        : defaultIdentities.map(i => ({ ...i, score: 0 }));
+    }
+    
+    // No archetype selected
+    return defaultIdentities.map(i => ({ ...i, score: 0 }));
+  };
+
+  const identityOptions = getIdentityOptions();
 
   const getPageTasks = () => {
-    return tasks || [];
+    // If no archetype selected, show nothing
+    if (!activeArchetype) {
+      return [];
+    }
+    
+    let filtered = tasks || [];
+    
+    // Filter by active archetype
+    filtered = filtered.filter(t => t.archetype_id === activeArchetype.id);
+    
+    // Filter by page (daily vs work)
+    if (currentPage === "work") {
+      filtered = filtered.filter(t => t.page === "work");
+    } else {
+      filtered = filtered.filter(t => !t.page || t.page === "daily");
+    }
+    
+    return filtered;
   };
 
   const pageTasks = getPageTasks();
+  
   const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const today = todayName;
 
@@ -657,18 +876,49 @@ function GlowApp({ session }) {
           </div>
           
           <div className="settings-section">
-            <h3>Switch Archetype</h3>
-            <p className="settings-hint">Switch to a different archetype profile</p>
+            <h3>My Archetypes</h3>
+            <p className="settings-hint">Switch between your adopted archetypes</p>
             <div className="archetype-switcher">
-              {archetypes.map(arch => (
-                <button
-                  key={arch.id}
-                  className={`archetype-switch-btn ${activeArchetype?.id === arch.id ? 'active' : ''}`}
-                  onClick={() => switchToArchetype(arch)}
-                >
-                  {arch.emoji} {arch.name}
-                </button>
-              ))}
+              {adoptedArchetypes.length > 0 ? (
+                adoptedArchetypes.map(arch => (
+                  <div
+                    key={arch.id}
+                    className={`archetype-switch-btn ${activeArchetype?.id === arch.id ? 'active' : ''}`}
+                    onClick={() => switchToArchetype(arch)}
+                  >
+                    {arch.emoji} {arch.name}
+                    <button 
+                      className="remove-archetype-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeArchetype(arch);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="no-archetypes">No archetypes adopted yet</p>
+              )}
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <h3>Add Archetype</h3>
+            <p className="settings-hint">Choose from available archetypes</p>
+            <div className="archetype-switcher">
+              {archetypes
+                .filter(arch => !adoptedArchetypes.find(a => a.id === arch.id))
+                .map(arch => (
+                  <div
+                    key={arch.id}
+                    className="archetype-switch-btn"
+                    onClick={() => switchToArchetype(arch)}
+                  >
+                    {arch.emoji} {arch.name}
+                  </div>
+                ))}
             </div>
           </div>
 
@@ -678,11 +928,13 @@ function GlowApp({ session }) {
             <input
               className="input"
               placeholder="Archetype name"
+              name="archetypeName"
               value={newIdentityName}
               onChange={(e) => setNewIdentityName(e.target.value)}
             />
             <select
               className="input"
+              name="archetypeEmoji"
               value={newIdentityEmoji}
               onChange={(e) => setNewIdentityEmoji(e.target.value)}
             >
@@ -790,28 +1042,74 @@ function GlowApp({ session }) {
       </h1>
 
       <div className="archetype-selector">
-        <select 
-          className="archetype-dropdown"
-          value={activeArchetype?.id || ""}
-          onChange={(e) => {
-            const arch = archetypes.find(a => a.id === e.target.value);
-            if (arch) switchToArchetype(arch);
-          }}
-        >
-          <option value="">Select Archetype</option>
-          {archetypes.map(arch => (
-            <option key={arch.id} value={arch.id}>
-              {arch.emoji} {arch.name}
-            </option>
-          ))}
-        </select>
-        <button className="add-btn" onClick={() => setShowAddHabit(true)}>
-          + Add
-        </button>
-        <button className="add-btn small" onClick={() => setShowSettings(true)}>
-          ⚙️
-        </button>
+        {adoptedArchetypes.length > 0 ? (
+          <div className="adopted-archetypes-row">
+            {adoptedArchetypes.map(arch => (
+              <div
+                key={arch.id}
+                className={`adopted-archetype-chip ${activeArchetype?.id === arch.id ? 'active' : ''}`}
+                onClick={() => switchToArchetype(arch)}
+              >
+                <span className="archetype-emoji">{arch.emoji}</span>
+                <span className="archetype-name">{arch.name}</span>
+              </div>
+            ))}
+          </div>
+        ) : activeArchetype ? (
+          <div className="selected-archetype" onClick={() => setShowSettings(true)}>
+            <span className="archetype-emoji">{activeArchetype.emoji}</span>
+            <span className="archetype-name">{activeArchetype.name}</span>
+            <span className="switch-hint">(tap to switch)</span>
+          </div>
+        ) : (
+          <select 
+            className="archetype-dropdown"
+            name="archetypeSelect"
+            value={activeArchetype?.id || ""}
+            onChange={(e) => {
+              const arch = archetypes.find(a => a.id === e.target.value);
+              if (arch) switchToArchetype(arch);
+            }}
+          >
+            <option value="">Select Archetype</option>
+            {archetypes.map(arch => (
+              <option key={arch.id} value={arch.id}>
+                {arch.emoji} {arch.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <div className="add-dropdown">
+          <button className="add-btn" onClick={() => setShowAddHabit(true)}>
+            + Add
+          </button>
+          <div className="add-dropdown-content">
+            <button onClick={() => { setShowAddHabit(true); }}>
+              + Add Habit
+            </button>
+            <button onClick={() => { setShowSettings(true); }}>
+              + Add Archetype
+            </button>
+          </div>
+        </div>
       </div>
+
+      {activeArchetype && (
+        <div className="view-toggle">
+          <button 
+            className={`view-toggle-btn ${!showAllTasks ? 'active' : ''}`}
+            onClick={() => setShowAllTasks(false)}
+          >
+            {activeArchetype.emoji} {activeArchetype.name}
+          </button>
+          <button 
+            className={`view-toggle-btn ${showAllTasks ? 'active' : ''}`}
+            onClick={() => setShowAllTasks(true)}
+          >
+            ✨ All Tasks
+          </button>
+        </div>
+      )}
 
       <div className="identities-bar">
         {identityOptions.map(id => (
@@ -826,6 +1124,7 @@ function GlowApp({ session }) {
       <div className="day-selector">
         <select 
           className="day-select"
+          name="daySelect"
           value={expandedDay || ""}
           onChange={(e) => setExpandedDay(e.target.value || null)}
         >
@@ -839,22 +1138,37 @@ function GlowApp({ session }) {
       {!expandedDay ? (
         <div className="calendar">
           {days.filter(d => d !== "Today").map(day => {
-            const dayTasks = pageTasks.filter(t => 
-              t.is_all_day || (t.days && t.days.includes(day))
-            );
-            if (!dayTasks.length) return null;
+            const dayTasks = pageTasks.filter(t => {
+              const taskDays = parseDays(t.days);
+              const isAllDay = t.is_all_day === true;
+              const hasDays = Array.isArray(taskDays) && taskDays.length > 0;
+              return isAllDay || !hasDays || taskDays.includes(day);
+            });
             
             return (
               <div key={day} className="day-box" onClick={() => setExpandedDay(day)}>
                 <h3>{day}{day === today && <span className="today-sparkle">✧</span>}</h3>
-                <p className="day-progress">{dayTasks.filter(t => t.completed).length}/{dayTasks.length}</p>
+                {dayTasks.length > 0 ? (
+                  <p className="day-progress">{dayTasks.filter(t => t.completed).length}/{dayTasks.length}</p>
+                ) : (
+                  <p className="day-progress empty">No tasks</p>
+                )}
                 
-                {dayTasks.slice(0, 3).map(task => (
-                  <div key={task.id} className={`task-row-compact ${task.completed ? "completed" : ""}`}>
-                    <span className="task-text">{task.title}</span>
-                  </div>
-                ))}
-                {dayTasks.length > 3 && <p className="more-tasks">+{dayTasks.length - 3} more</p>}
+                {categoriesList.map(category => {
+                  const categoryTasks = dayTasks.filter(t => t.category === category);
+                  if (!categoryTasks.length) return null;
+                  return (
+                    <div key={category} className="task-category-section">
+                      <span className="category-label">{category}</span>
+                      {categoryTasks.slice(0, 2).map(task => (
+                        <div key={task.id} className={`task-row-compact ${task.completed ? "completed" : ""}`}>
+                          <span className="task-text">{task.title}</span>
+                        </div>
+                      ))}
+                      {categoryTasks.length > 2 && <p className="more-tasks">+{categoryTasks.length - 2} more</p>}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
@@ -867,37 +1181,62 @@ function GlowApp({ session }) {
         </div>
       ) : (
         <div className="day-view">
+          <button className="back-btn full-width" onClick={() => setExpandedDay(null)}>← Back</button>
           <div className="day-view-header">
-            <button className="back-btn" onClick={() => setExpandedDay(null)}>← Back</button>
             <h2>{expandedDay}</h2>
             <button className="add-btn" onClick={() => setShowAddHabit(true)}>+ Add</button>
           </div>
           {(() => {
-            const dayTasks = pageTasks.filter(t => 
-              t.is_all_day || (t.days && t.days.includes(expandedDay))
-            );
+            const dayTasks = pageTasks.filter(t => {
+              const taskDays = parseDays(t.days);
+              const isAllDay = t.is_all_day === true;
+              const hasDays = Array.isArray(taskDays) && taskDays.length > 0;
+              return isAllDay || !hasDays || taskDays.includes(expandedDay);
+            });
             
             if (!dayTasks.length) return <p className="empty">No habits for {expandedDay}. Add a habit to get started!</p>;
             
-            return dayTasks.map(task => (
-              <div key={task.id} className={`task-row ${task.completed ? "completed" : ""}`}>
-                <label className="task-label">
-                  <input
-                    type="checkbox"
-                    checked={task.completed}
-                    onChange={() => toggleTask(task.id, task.completed)}
-                  />
-                  <span className="task-time">
-                    {task.is_all_day ? "All Day" : task.time}
-                  </span>
-                  <span className="task-text">{task.title}</span>
-                </label>
-                {task.category && (
-                  <span className="category-tag">{task.category}</span>
-                )}
-                <button className="delete-btn" onClick={() => deleteTask(task.id)}>×</button>
-              </div>
-            ));
+            const sortedTasks = sortByTime(dayTasks);
+            
+            const morningTasks = sortedTasks.filter(t => getTimeOfDay(t.time) === 'Morning' || t.is_all_day);
+            const afternoonTasks = sortedTasks.filter(t => getTimeOfDay(t.time) === 'Afternoon');
+            const eveningTasks = sortedTasks.filter(t => getTimeOfDay(t.time) === 'Evening');
+            
+            const renderTasks = (tasks, label) => {
+              if (!tasks.length) return null;
+              return (
+                <div key={label} className="time-section">
+                  <h4 className="time-label">{label}</h4>
+                  {tasks.map(task => (
+                    <div key={task.id} className={`task-row ${task.completed ? "completed" : ""}`}>
+                      <label className="task-label">
+                        <input
+                          type="checkbox"
+                          checked={task.completed}
+                          onChange={() => toggleTask(task.id, task.completed)}
+                        />
+                        <span className="task-time">
+                          {task.is_all_day ? "All Day" : formatTime(task.time)}
+                        </span>
+                        <span className="task-text">{task.title}</span>
+                      </label>
+                      {task.category && (
+                        <span className="category-tag">{task.category}</span>
+                      )}
+                      <button className="delete-btn" onClick={() => deleteTask(task.id)}>×</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            };
+            
+            return (
+              <>
+                {renderTasks(morningTasks, 'Morning')}
+                {renderTasks(afternoonTasks, 'Afternoon')}
+                {renderTasks(eveningTasks, 'Evening')}
+              </>
+            );
           })()}
         </div>
       )}
@@ -914,12 +1253,14 @@ function GlowApp({ session }) {
               <input
                 className="input"
                 placeholder="What habit do you want to build?"
+                name="habitTitle"
                 value={newTask}
                 onChange={(e) => setNewTask(e.target.value)}
               />
               
               <select
                 className="input"
+                name="habitCategory"
                 value={taskCategory}
                 onChange={(e) => setTaskCategory(e.target.value)}
               >
@@ -950,6 +1291,7 @@ function GlowApp({ session }) {
               <div className="form-row">
                 <select
                   className="input"
+                  name="habitDay"
                   value={taskDay}
                   onChange={(e) => setTaskDay(e.target.value)}
                 >
@@ -959,6 +1301,7 @@ function GlowApp({ session }) {
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
+                    name="isAllDay"
                     checked={isAllDay}
                     onChange={(e) => setIsAllDay(e.target.checked)}
                   />
@@ -969,6 +1312,7 @@ function GlowApp({ session }) {
               {!isAllDay && (
                 <select
                   className="input"
+                  name="habitTime"
                   value={taskTime}
                   onChange={(e) => setTaskTime(e.target.value)}
                 >
