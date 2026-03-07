@@ -1002,6 +1002,12 @@ function GlowApp({ session }) {
               Replay Introduction
             </button>
           </div>
+
+          <div className="settings-section">
+            <button className="button logout-btn" onClick={() => supabase.auth.signOut()}>
+              Sign Out
+            </button>
+          </div>
         </div>
       )}
 

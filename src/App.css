@@ -1490,4 +1490,21 @@ body {
   cursor: pointer;
   color: var(--theme-color);
   width: 100%;
+  margin-bottom: 8px;
+}
+
+.logout-btn {
+  background: #ff6b6b;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  font-size: 1rem;
+  margin-top: 20px;
+}
+
+.logout-btn:hover {
+  background: #ee5a5a;
 }
