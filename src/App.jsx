@@ -404,6 +404,30 @@ function GlowApp({ session }) {
   async function saveTemplateAndFinish() {
     setIsAdopting(true);
     
+    const userId = session?.user?.id;
+    if (!userId) return;
+    
+    // Check if tasks already exist for this archetype
+    const { data: existingTasks } = await supabase
+      .from("Tasks")
+      .select("id")
+      .eq("archetype_id", selectedArchetype.id)
+      .eq("user_id", userId);
+    
+    if (existingTasks && existingTasks.length > 0) {
+      // Tasks already exist, just finish without creating duplicates
+      const newAdopted = adoptedArchetypes.find(a => a.id === selectedArchetype.id)
+        ? adoptedArchetypes
+        : [...adoptedArchetypes, selectedArchetype];
+      setAdoptedArchetypes(newAdopted);
+      localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
+      setOnboardingStep(null);
+      setSelectedArchetype(null);
+      setTemplateHabits([]);
+      setIsAdopting(false);
+      return;
+    }
+    
     const identityEmojis = {
       'NOURISHED': '🥗',
       'RADIANT': '✨',
@@ -432,7 +456,6 @@ function GlowApp({ session }) {
     };
 
     const createdIdentities = [];
-    const userId = session?.user?.id;
     if (!userId) return;
     
     for (const identityName of selectedArchetype.default_identities) {
@@ -807,8 +830,14 @@ function GlowApp({ session }) {
     
     let filtered = tasks || [];
     
-    // Filter by active archetype
-    filtered = filtered.filter(t => t.archetype_id === activeArchetype.id);
+    // Filter by active archetype unless showAllTasks is enabled
+    if (!showAllTasks) {
+      filtered = filtered.filter(t => t.archetype_id === activeArchetype.id);
+    } else {
+      // ShowAllTasks: filter to adopted archetypes only
+      const adoptedIds = adoptedArchetypes.map(a => a.id);
+      filtered = filtered.filter(t => !t.archetype_id || adoptedIds.includes(t.archetype_id));
+    }
     
     // Filter by page (daily vs work)
     if (currentPage === "work") {

@@ -63,9 +63,6 @@ body {
   font-size: 2.5rem;
   color: var(--theme-color);
   margin: 12px 0;
-}
-
-.title {
   text-shadow: 0 0 10px var(--theme-color), 0 0 20px var(--theme-light);
 }
 
@@ -233,6 +230,41 @@ body {
   margin-top: 20px;
 }
 
+/* Mobile Calendar */
+@media (max-width: 500px) {
+  .calendar {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+  }
+  
+  .day-box {
+    padding: 8px;
+  }
+  
+  .day-box h3 {
+    font-size: 0.9rem;
+    margin: 4px 0;
+  }
+  
+  .day-progress {
+    font-size: 0.75rem;
+  }
+  
+  .category-label {
+    font-size: 0.65rem;
+  }
+  
+  .task-row-compact {
+    padding: 4px 0;
+    font-size: 0.75rem;
+  }
+  
+  .more-tasks {
+    font-size: 0.7rem;
+  }
+}
+
 /* Day Box */
 .day-box {
   background: #ffe4f2;
@@ -386,13 +418,6 @@ body {
 
 .task-row:hover .delete-btn {
   opacity: 1;
-}
-
-/* Day View */
-.day-view {
-  background: var(--theme-light);
-  border-radius: 14px;
-  padding: 20px;
 }
 
 /* Modal */
@@ -554,15 +579,17 @@ body {
 @media (max-width: 767px) {
   .container {
     padding: 12px;
+    max-width: 100%;
   }
   
   .title {
     font-size: 1.8rem;
+    margin: 8px 0;
   }
   
   .day-box {
-    padding: 12px;
-    margin-bottom: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
   }
   
   .task-row {
@@ -576,6 +603,7 @@ body {
   
   .archetypes-grid {
     grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
   }
   
   .onboarding-content {
@@ -585,6 +613,60 @@ body {
   .modal {
     margin: 10px;
     max-height: 90vh;
+  }
+  
+  .adopted-archetypes-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+  }
+  
+  .adopted-archetype-chip {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .adopted-archetype-chip .archetype-emoji {
+    font-size: 0.9rem;
+  }
+  
+  .adopted-archetype-chip .archetype-name {
+    font-size: 0.75rem;
+  }
+  
+  .archetype-selector {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .page-btn {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+  }
+  
+  .header-row {
+    margin-bottom: 6px;
+  }
+  
+  .view-toggle {
+    gap: 6px;
+  }
+  
+  .view-toggle-btn {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+  
+  .identity-chip {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+  
+  .day-select {
+    padding: 8px;
+    font-size: 0.9rem;
   }
 }
 
