@@ -244,7 +244,9 @@ function GlowApp({ session }) {
   const [completionLogs, setCompletionLogs] = useState([]);
   const [identities, setIdentities] = useState([]);
   const [archetypes, setArchetypes] = useState([]);
-  const [currentPage, setCurrentPage] = useState("daily");
+  
+  // Main navigation: home, habits, insights, growth, community
+  const [currentPage, setCurrentPage] = useState("home");
   const [showSettings, setShowSettings] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [showAddIdentity, setShowAddIdentity] = useState(false);
@@ -255,10 +257,24 @@ function GlowApp({ session }) {
   const [frictionTask, setFrictionTask] = useState(null);
   const [frictionReason, setFrictionReason] = useState("");
   const [isAdopting, setIsAdopting] = useState(false);
+  const [showGlowAnimation, setShowGlowAnimation] = useState(false);
+  
+  // Edit habit state
+  const [showEditHabit, setShowEditHabit] = useState(false);
+  const [editingHabit, setEditingHabit] = useState(null);
   
   // Onboarding state
   const [onboardingStep, setOnboardingStep] = useState(null);
   const [templateHabits, setTemplateHabits] = useState([]);
+  
+  // Check for first-time users and show onboarding
+  useEffect(() => {
+    const saved = localStorage.getItem('adoptedArchetypes');
+    const hasArchetypes = saved && JSON.parse(saved).length > 0;
+    if (!hasArchetypes) {
+      setOnboardingStep('welcome');
+    }
+  }, []);
   
   // Tooltip state
   const [showTooltip, setShowTooltip] = useState(null);
@@ -294,8 +310,57 @@ function GlowApp({ session }) {
   const [newIdentityName, setNewIdentityName] = useState("");
   const [newIdentityEmoji, setNewIdentityEmoji] = useState("✨");
 
-  const categoriesList = ["Beauty", "Growth", "Health", "Wellness", "Mindset", "Work", "School"];
+  // Categories: Health, Mindset, Finances, Beauty
+  const categoriesList = ["Health", "Mindset", "Finances", "Beauty"];
   const days = ["Today", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  
+  // Helper to check if task is completed for a specific date
+  const isTaskCompletedOn = (taskId, dateStr) => {
+    return completionLogs.some(log => 
+      log.task_id === taskId && 
+      log.completed_at && 
+      log.completed_at.startsWith(dateStr) &&
+      (!log.friction_reason || log.friction_reason !== "skipped")
+    );
+  };
+  
+  // Helper to check if task is completed today
+  const isCompletedToday = (taskId) => {
+    const today = new Date().toISOString().split('T')[0];
+    return isTaskCompletedOn(taskId, today);
+  };
+  
+  // Midnight reset for daily habits
+  useEffect(() => {
+    const checkMidnight = () => {
+      const today = new Date().toDateString();
+      const lastReset = localStorage.getItem('lastResetDate');
+      
+      if (lastReset !== today) {
+        // It's a new day - reset all daily habits
+        const resetDailyHabits = async () => {
+          const { data: tasks } = await supabase.from("Tasks").select("id, is_all_day");
+          if (tasks) {
+            for (const task of tasks) {
+              if (!task.is_all_day) {
+                await supabase.from("Tasks").update({ completed: false }).eq("id", task.id);
+              }
+            }
+          }
+          localStorage.setItem('lastResetDate', today);
+          loadData();
+        };
+        resetDailyHabits();
+      }
+    };
+    
+    // Check immediately
+    checkMidnight();
+    
+    // Check every minute
+    const interval = setInterval(checkMidnight, 60000);
+    return () => clearInterval(interval);
+  }, []);
   
   // Helper to safely parse days JSON
   const parseDays = (daysValue) => {
@@ -376,7 +441,7 @@ function GlowApp({ session }) {
     } catch (e) { /* ignore */ }
 
     try {
-      const result = await supabase.from("completion_logs").select("*").limit(10);
+      const result = await supabase.from("completion_logs").select("*").order("completed_at", { ascending: false });
       logError("completion_logs.select", result);
       setCompletionLogs(result.data || []);
     } catch (e) { /* ignore */ }
@@ -572,25 +637,51 @@ function GlowApp({ session }) {
     } catch (e) { console.log("Add habit error:", e); }
   }
 
-  async function toggleTask(id, completed) {
-    const task = tasks.find(t => t.id === id);
+  async function toggleTask(id, completed, task = null) {
+    const today = new Date().toISOString().split('T')[0];
     
     if (completed) {
-      setFrictionTask(task);
-      setShowFrictionModal(true);
-      return;
+      // User is unmarking - remove today's completion from completion_logs
+      const { data: existingLogs } = await supabase
+        .from("completion_logs")
+        .select("*")
+        .eq("task_id", id)
+        .gte("completed_at", today)
+        .lt("completed_at", today + "T23:59:59");
+      
+      if (existingLogs && existingLogs.length > 0) {
+        for (const log of existingLogs) {
+          await supabase.from("completion_logs").delete().eq("id", log.id);
+        }
+      }
+    } else {
+      // User is marking complete - add to completion_logs
+      await supabase.from("completion_logs").insert({
+        task_id: id,
+        user_id: session?.user?.id,
+        completed_at: new Date().toISOString(),
+      });
+      
+      // If task has identity tags, log those too
+      if (task?.identity_tags) {
+        for (const identityId of task.identity_tags) {
+          await supabase.from("completion_logs").insert({
+            task_id: id,
+            identity_id: identityId,
+            user_id: session?.user?.id,
+            completed_at: new Date().toISOString(),
+          });
+        }
+      }
+      
+      setShowGlowAnimation(true);
     }
-
-    const result = await supabase
-      .from("Tasks")
-      .update({ completed: true })
-      .eq("id", id);
-    logError("Tasks.update (toggleTask)", result);
     
     loadData();
   }
 
-  async function submitTwoMinute() {
+  // Handle actual completion after friction
+  async function confirmComplete() {
     if (!frictionTask) return;
 
     for (const identityId of (frictionTask.identity_tags || [])) {
@@ -612,6 +703,7 @@ function GlowApp({ session }) {
     setShowFrictionModal(false);
     setFrictionTask(null);
     setFrictionReason("");
+    setShowGlowAnimation(true);
     loadData();
   }
 
@@ -635,6 +727,7 @@ function GlowApp({ session }) {
     setShowFrictionModal(false);
     setFrictionTask(null);
     setFrictionReason("");
+    setShowGlowAnimation(true);
     loadData();
   }
 
@@ -664,6 +757,31 @@ function GlowApp({ session }) {
   async function deleteTask(id) {
     const result = await supabase.from("Tasks").delete().eq("id", id);
     logError("Tasks.delete", result);
+    loadData();
+  }
+
+  function openEditHabit(task) {
+    setEditingHabit(task);
+    setShowEditHabit(true);
+  }
+
+  async function saveEditHabit(e) {
+    e.preventDefault();
+    if (!editingHabit) return;
+
+    const result = await supabase
+      .from("Tasks")
+      .update({
+        title: editingHabit.title,
+        category: editingHabit.category,
+        days: editingHabit.days,
+        is_all_day: editingHabit.is_all_day,
+      })
+      .eq("id", editingHabit.id);
+    logError("Tasks.update (editHabit)", result);
+
+    setShowEditHabit(false);
+    setEditingHabit(null);
     loadData();
   }
 
@@ -823,27 +941,19 @@ function GlowApp({ session }) {
   const identityOptions = getIdentityOptions();
 
   const getPageTasks = () => {
-    // If no archetype selected, show nothing
-    if (!activeArchetype) {
-      return [];
-    }
-    
     let filtered = tasks || [];
     
     // Filter by active archetype unless showAllTasks is enabled
     if (!showAllTasks) {
+      // If no archetype selected, show nothing
+      if (!activeArchetype) {
+        return [];
+      }
       filtered = filtered.filter(t => t.archetype_id === activeArchetype.id);
     } else {
       // ShowAllTasks: filter to adopted archetypes only
       const adoptedIds = adoptedArchetypes.map(a => a.id);
       filtered = filtered.filter(t => !t.archetype_id || adoptedIds.includes(t.archetype_id));
-    }
-    
-    // Filter by page (daily vs work)
-    if (currentPage === "work") {
-      filtered = filtered.filter(t => t.page === "work");
-    } else {
-      filtered = filtered.filter(t => !t.page || t.page === "daily");
     }
     
     return filtered;
@@ -982,14 +1092,19 @@ function GlowApp({ session }) {
           </div>
 
           <div className="settings-section">
-            <h3>Your Identities</h3>
+            <h3>My Identities</h3>
+            <p className="settings-hint">All your identity traits across archetypes</p>
             <div className="identity-list">
-              {identityOptions.map(id => (
-                <div key={id.id} className="identity-list-item">
-                  <span>{id.emoji} {id.name}</span>
-                  <span className="identity-score">{id.score} pts</span>
-                </div>
-              ))}
+              {identities.length > 0 ? (
+                identities.map(id => (
+                  <div key={id.id} className="identity-list-item">
+                    <span>{id.emoji} {id.name}</span>
+                    <span className="identity-score">{getIdentityScore(id.id) || 0} pts</span>
+                  </div>
+                ))
+              ) : (
+                <p className="empty-message">No identities yet. Adopt an archetype to build your identities.</p>
+              )}
             </div>
           </div>
 
@@ -1055,111 +1170,327 @@ function GlowApp({ session }) {
         </div>
       )}
       
-      <div className="header-row">
-        <div className="page-switcher">
-          <button 
-            className={`page-btn ${currentPage === "daily" ? "active" : ""}`}
-            onClick={() => setCurrentPage("daily")}
-          >
-            Glow
-          </button>
-          <button 
-            className={`page-btn ${currentPage === "work" ? "active" : ""}`}
-            onClick={() => setCurrentPage("work")}
-          >
-            Work Glow
-          </button>
-        </div>
-      </div>
+      {/* Bottom Navigation */}
+      <nav className="bottom-nav">
+        <button 
+          className={`nav-btn ${currentPage === "home" ? "active" : ""}`}
+          onClick={() => setCurrentPage("home")}
+        >
+          <span className="nav-icon">🏠</span>
+          <span className="nav-label">Home</span>
+        </button>
+        <button 
+          className={`nav-btn ${currentPage === "habits" ? "active" : ""}`}
+          onClick={() => setCurrentPage("habits")}
+        >
+          <span className="nav-icon">✓</span>
+          <span className="nav-label">Habits</span>
+        </button>
+        <button 
+          className={`nav-btn ${currentPage === "insights" ? "active" : ""}`}
+          onClick={() => setCurrentPage("insights")}
+        >
+          <span className="nav-icon">📊</span>
+          <span className="nav-label">Insights</span>
+        </button>
+        <button 
+          className={`nav-btn ${currentPage === "growth" ? "active" : ""}`}
+          onClick={() => setCurrentPage("growth")}
+        >
+          <span className="nav-icon">🌱</span>
+          <span className="nav-label">Growth</span>
+        </button>
+        <button 
+          className={`nav-btn ${currentPage === "community" ? "active" : ""}`}
+          onClick={() => setCurrentPage("community")}
+        >
+          <span className="nav-icon">💜</span>
+          <span className="nav-label">Community</span>
+        </button>
+      </nav>
 
-      <h1 className="title">
-        {currentPage === "daily" ? "Glow ✧" : "Work Glow ✧"}
-      </h1>
-
-      <div className="archetype-selector">
-        {adoptedArchetypes.length > 0 ? (
-          <div className="adopted-archetypes-row">
-            {adoptedArchetypes.map(arch => (
-              <div
-                key={arch.id}
-                className={`adopted-archetype-chip ${activeArchetype?.id === arch.id ? 'active' : ''}`}
-                onClick={() => switchToArchetype(arch)}
-              >
-                <span className="archetype-emoji">{arch.emoji}</span>
-                <span className="archetype-name">{arch.name}</span>
-              </div>
-            ))}
-          </div>
-        ) : activeArchetype ? (
-          <div className="selected-archetype" onClick={() => setShowSettings(true)}>
-            <span className="archetype-emoji">{activeArchetype.emoji}</span>
-            <span className="archetype-name">{activeArchetype.name}</span>
-            <span className="switch-hint">(tap to switch)</span>
-          </div>
-        ) : (
-          <select 
-            className="archetype-dropdown"
-            name="archetypeSelect"
-            value={activeArchetype?.id || ""}
-            onChange={(e) => {
-              const arch = archetypes.find(a => a.id === e.target.value);
-              if (arch) switchToArchetype(arch);
-            }}
-          >
-            <option value="">Select Archetype</option>
-            {archetypes.map(arch => (
-              <option key={arch.id} value={arch.id}>
-                {arch.emoji} {arch.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <div className="add-dropdown">
-          <button className="add-btn" onClick={() => setShowAddHabit(true)}>
-            + Add
-          </button>
-          <div className="add-dropdown-content">
-            <button onClick={() => { setShowAddHabit(true); }}>
-              + Add Habit
-            </button>
-            <button onClick={() => { setShowSettings(true); }}>
-              + Add Archetype
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {activeArchetype && (
-        <div className="view-toggle">
-          <button 
-            className={`view-toggle-btn ${!showAllTasks ? 'active' : ''}`}
-            onClick={() => setShowAllTasks(false)}
-          >
-            {activeArchetype.emoji} {activeArchetype.name}
-          </button>
-          <button 
-            className={`view-toggle-btn ${showAllTasks ? 'active' : ''}`}
-            onClick={() => setShowAllTasks(true)}
-          >
-            ✨ All Tasks
-          </button>
+      {/* Glow Animation Overlay */}
+      {showGlowAnimation && (
+        <div className="glow-overlay">
+          <div className="sparkles"></div>
+          <button className="glow-close-btn" onClick={() => setShowGlowAnimation(false)}>×</button>
+          <div className="glow-burst">✨</div>
+          <div className="glow-message">You're on a glow ✨</div>
         </div>
       )}
 
-      <div className="identities-bar">
-        {identityOptions.map(id => (
-          <div key={id.id} className="identity-chip" title={`Score: ${id.score}`}>
-            <span className="identity-emoji">{id.emoji}</span>
-            <span className="identity-name">{id.name}</span>
-            {id.score > 0 && <span className="identity-score">{id.score}</span>}
+      {/* Edit Habit Modal */}
+      {showEditHabit && editingHabit && (
+        <div className="modal-overlay" onClick={() => setShowEditHabit(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Edit Habit</h2>
+              <button onClick={() => setShowEditHabit(false)}>×</button>
+            </div>
+            <form onSubmit={saveEditHabit}>
+              <div className="modal-content">
+                <label className="form-label">Habit Title</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={editingHabit.title}
+                  onChange={(e) => setEditingHabit({...editingHabit, title: e.target.value})}
+                  required
+                />
+                
+                <label className="form-label">Category</label>
+                <select
+                  className="input"
+                  value={editingHabit.category || 'Health'}
+                  onChange={(e) => setEditingHabit({...editingHabit, category: e.target.value})}
+                >
+                  {categoriesList.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                
+                <label className="form-label">Days</label>
+                <div className="days-checkboxes">
+                  {days.filter(d => d !== "Today").map(day => (
+                    <label key={day} className="day-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={(typeof editingHabit.days === 'string' ? JSON.parse(editingHabit.days) : editingHabit.days)?.includes(day)}
+                        onChange={(e) => {
+                          const currentDays = typeof editingHabit.days === 'string' ? JSON.parse(editingHabit.days) : (editingHabit.days || []);
+                          const newDays = e.target.checked 
+                            ? [...currentDays, day]
+                            : currentDays.filter(d => d !== day);
+                          setEditingHabit({...editingHabit, days: newDays});
+                        }}
+                      />
+                      {day}
+                    </label>
+                  ))}
+                </div>
+                
+                <label className="form-label checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={editingHabit.is_all_day || false}
+                    onChange={(e) => setEditingHabit({...editingHabit, is_all_day: e.target.checked})}
+                  />
+                  Show every day
+                </label>
+                
+                <button type="submit" className="button">Save Changes</button>
+              </div>
+            </form>
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Page Content */}
+      {currentPage === "home" && (
+        <HomePage 
+          tasks={tasks}
+          activeArchetype={activeArchetype}
+          identities={identities}
+          completionLogs={completionLogs}
+          isCompletedToday={isCompletedToday}
+          onToggleTask={toggleTask}
+          onDeleteTask={deleteTask}
+          onEditTask={openEditHabit}
+          categoriesList={categoriesList}
+        />
+      )}
+
+      {currentPage === "habits" && (
+        <HabitsPage 
+          tasks={tasks}
+          adoptedArchetypes={adoptedArchetypes}
+          activeArchetype={activeArchetype}
+          setActiveArchetype={setActiveArchetype}
+          showAddHabit={showAddHabit}
+          setShowAddHabit={setShowAddHabit}
+          onAddHabit={addHabit}
+          onToggleTask={toggleTask}
+          onDeleteTask={deleteTask}
+          onEditTask={openEditHabit}
+          isCompletedToday={isCompletedToday}
+          categoriesList={categoriesList}
+          days={days}
+          identityOptions={identityOptions}
+          setExpandedDay={setExpandedDay}
+          expandedDay={expandedDay}
+          pageTasks={pageTasks}
+          showAllTasks={showAllTasks}
+          setShowAllTasks={setShowAllTasks}
+        />
+      )}
+
+      {currentPage === "insights" && (
+        <InsightsPage 
+          tasks={tasks}
+          completionLogs={completionLogs}
+          categoriesList={categoriesList}
+          days={days}
+        />
+      )}
+
+      {currentPage === "growth" && (
+        <GrowthPage 
+          identities={identities}
+          tasks={tasks}
+          completionLogs={completionLogs}
+          categoriesList={categoriesList}
+        />
+      )}
+
+      {currentPage === "community" && (
+        <CommunityPage />
+      )}
+        </>
+      )}
+      </div>
+  );
+}
+
+// Home Page Component
+function HomePage({ tasks, activeArchetype, identities, completionLogs, isCompletedToday, onToggleTask, onDeleteTask, onEditTask, categoriesList = ["Health", "Mindset", "Finances", "Beauty"] }) {
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  
+  const todayTasks = tasks.filter(t => {
+    if (!t.archetype_id) return true;
+    const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+    return taskDays?.includes(today) || t.is_all_day;
+  });
+
+  const completedToday = todayTasks.filter(t => isCompletedToday(t.id)).length;
+  const glowScore = completedToday * 10;
+
+  // Calculate streak
+  const getStreak = () => {
+    let streak = 0;
+    const today = new Date();
+    for (let i = 0; i < 365; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const hasCompleted = completionLogs.some(l => 
+        l.completed_at && l.completed_at.startsWith(dateStr)
+      );
+      if (hasCompleted) streak++;
+      else if (i > 0) break;
+    }
+    return streak;
+  };
+
+  const streak = getStreak();
+  const streakLabel = streak >= 30 ? "Full Glow" : streak >= 10 ? "Aura" : streak >= 3 ? "Sparkle" : "";
+
+  return (
+    <div className="home-page">
+      <h1 className="title">Glow ✧</h1>
+      
+      <div className="home-section glow-score-section">
+        <h2>Today's Glow</h2>
+        <div className="glow-score-display">
+          <span className="glow-score-value large">{glowScore} ✧</span>
+          {streakLabel && <span className="streak-badge">{streakLabel}</span>}
+        </div>
       </div>
 
+      <div className="home-section streak-section">
+        <h2>Streak Progress</h2>
+        <div className="streak-display">
+          <span className="streak-number">{streak}</span>
+          <span className="streak-label">day streak</span>
+        </div>
+      </div>
+
+      <div className="home-section todays-habits-section">
+        <h2>Today's Habits</h2>
+        {todayTasks.length === 0 ? (
+          <p className="empty-message">No habits for today</p>
+        ) : (
+          <div className="habits-list">
+            {(() => {
+              // Group tasks by category
+              const groupedTasks = {};
+              categoriesList.forEach(cat => {
+                groupedTasks[cat] = todayTasks.filter(t => t.category === cat);
+              });
+              // Add tasks without a category or with unknown category
+              groupedTasks['Other'] = todayTasks.filter(t => !t.category || !categoriesList.includes(t.category));
+              
+              return Object.entries(groupedTasks).map(([category, tasks]) => {
+                if (tasks.length === 0) return null;
+                return (
+                  <div key={category} className="category-group">
+                    <h3 className="category-title">{category}</h3>
+                    {tasks.map(task => (
+                      <div key={task.id} className={`habit-item ${isCompletedToday(task.id) ? 'completed' : ''}`}>
+                        <label className="habit-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={isCompletedToday(task.id)}
+                            onChange={() => onToggleTask(task.id, isCompletedToday(task.id), task)}
+                          />
+                          <span className="habit-text">{task.title}</span>
+                        </label>
+                        <div className="habit-actions">
+                          <button className="edit-btn" onClick={() => onEditTask(task)}>✎</button>
+                          <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Habits Page Component  
+function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, isCompletedToday, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks }) {
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const todayDate = new Date().toDateString();
+
+  return (
+    <div className="habits-page">
+      <h1 className="title">Habits ✧</h1>
+      
+      {/* Archetype Selector with View All option */}
+      {adoptedArchetypes.length > 0 && (
+        <div className="archetype-selector">
+          <div
+            className={`archetype-chip ${showAllTasks ? 'active' : ''}`}
+            onClick={() => {
+              setShowAllTasks(true);
+              setActiveArchetype(null);
+            }}
+          >
+            ✨ View All
+          </div>
+          {adoptedArchetypes.map(arch => (
+            <div
+              key={arch.id}
+              className={`archetype-chip ${activeArchetype?.id === arch.id && !showAllTasks ? 'active' : ''}`}
+              onClick={() => {
+                setShowAllTasks(false);
+                setActiveArchetype(arch);
+              }}
+            >
+              {arch.emoji} {arch.name}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Day Selector */}
       <div className="day-selector">
         <select 
           className="day-select"
-          name="daySelect"
           value={expandedDay || ""}
           onChange={(e) => setExpandedDay(e.target.value || null)}
         >
@@ -1168,347 +1499,369 @@ function GlowApp({ session }) {
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
+        <button className="add-btn" onClick={() => setShowAddHabit(true)}>+ Add</button>
       </div>
 
+      {/* Weekly/Daily View */}
       {!expandedDay ? (
         <div className="calendar">
           {days.filter(d => d !== "Today").map(day => {
             const dayTasks = pageTasks.filter(t => {
-              const taskDays = parseDays(t.days);
-              const isAllDay = t.is_all_day === true;
-              const hasDays = Array.isArray(taskDays) && taskDays.length > 0;
-              return isAllDay || !hasDays || taskDays.includes(day);
+              const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+              return t.is_all_day || !taskDays || taskDays.includes(day);
             });
+            if (dayTasks.length === 0) return null;
+            
+            const isToday = day === today;
+            const displayTasks = dayTasks.slice(0, 5);
+            const hasMore = dayTasks.length > 5;
             
             return (
-              <div key={day} className="day-box" onClick={() => setExpandedDay(day)}>
-                <h3>{day}{day === today && <span className="today-sparkle">✧</span>}</h3>
-                {dayTasks.length > 0 ? (
-                  <p className="day-progress">{dayTasks.filter(t => t.completed).length}/{dayTasks.length}</p>
-                ) : (
-                  <p className="day-progress empty">No tasks</p>
-                )}
-                
-                {categoriesList.map(category => {
-                  const categoryTasks = dayTasks.filter(t => t.category === category);
-                  if (!categoryTasks.length) return null;
+              <div key={day} className={`day-box ${isToday ? 'today' : ''}`} onClick={() => setExpandedDay(day)}>
+                {isToday && <span className="sparkle-icon">✨</span>}
+                <h3>{day}</h3>
+                <p className="day-progress">{dayTasks.filter(t => isCompletedToday(t.id)).length}/{dayTasks.length}</p>
+                <div className="day-tasks-preview">
+                  {displayTasks.map(task => (
+                    <div key={task.id} className={`task-preview ${isCompletedToday(task.id) ? 'completed' : ''}`}>
+                      {task.title}
+                    </div>
+                  ))}
+                  {hasMore && <div className="more-tasks">+{dayTasks.length - 5} more</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="day-view">
+          <button className="back-btn" onClick={() => setExpandedDay(null)}>← Back</button>
+          <h2>{expandedDay} {expandedDay === today && <span className="sparkle-icon">✨</span>}</h2>
+          {(() => {
+            const dayTasks = pageTasks.filter(t => {
+              const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+              return t.is_all_day || !taskDays || taskDays.includes(expandedDay);
+            });
+            
+            if (!dayTasks.length) return <p className="empty">No habits</p>;
+            
+            // Group tasks by category
+            const groupedTasks = {};
+            categoriesList.forEach(cat => {
+              groupedTasks[cat] = dayTasks.filter(t => t.category === cat);
+            });
+            // Add any tasks without a category
+            groupedTasks['Other'] = dayTasks.filter(t => !t.category || !categoriesList.includes(t.category));
+            
+            return (
+              <div className="tasks-by-category">
+                {Object.entries(groupedTasks).map(([category, tasks]) => {
+                  if (tasks.length === 0) return null;
                   return (
-                    <div key={category} className="task-category-section">
-                      <span className="category-label">{category}</span>
-                      {categoryTasks.slice(0, 2).map(task => (
-                        <div key={task.id} className={`task-row-compact ${task.completed ? "completed" : ""}`}>
-                          <span className="task-text">{task.title}</span>
+                    <div key={category} className="category-group">
+                      <h3 className="category-title">{category}</h3>
+                      {tasks.map(task => (
+                        <div key={task.id} className={`task-row ${isCompletedToday(task.id) ? 'completed' : ''}`}>
+                          <label className="task-label">
+                            <input
+                              type="checkbox"
+                              checked={isCompletedToday(task.id)}
+                              onChange={() => onToggleTask(task.id, isCompletedToday(task.id), task)}
+                            />
+                            <span className="task-text">{task.title}</span>
+                          </label>
+                          <div className="task-actions">
+                            <button className="edit-btn" onClick={() => onEditTask(task)}>✎</button>
+                            <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
+                          </div>
                         </div>
                       ))}
-                      {categoryTasks.length > 2 && <p className="more-tasks">+{categoryTasks.length - 2} more</p>}
                     </div>
                   );
                 })}
               </div>
             );
-          })}
-          {pageTasks.length === 0 && (
-            <div className="empty-state">
-              <p>No habits yet!</p>
-              <p className="empty-hint">Add your first habit to get started</p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="day-view">
-          <button className="back-btn full-width" onClick={() => setExpandedDay(null)}>← Back</button>
-          <div className="day-view-header">
-            <h2>{expandedDay}</h2>
-            <button className="add-btn" onClick={() => setShowAddHabit(true)}>+ Add</button>
-          </div>
-          {(() => {
-            const dayTasks = pageTasks.filter(t => {
-              const taskDays = parseDays(t.days);
-              const isAllDay = t.is_all_day === true;
-              const hasDays = Array.isArray(taskDays) && taskDays.length > 0;
-              return isAllDay || !hasDays || taskDays.includes(expandedDay);
-            });
-            
-            if (!dayTasks.length) return <p className="empty">No habits for {expandedDay}. Add a habit to get started!</p>;
-            
-            const sortedTasks = sortByTime(dayTasks);
-            
-            const morningTasks = sortedTasks.filter(t => getTimeOfDay(t.time) === 'Morning' || t.is_all_day);
-            const afternoonTasks = sortedTasks.filter(t => getTimeOfDay(t.time) === 'Afternoon');
-            const eveningTasks = sortedTasks.filter(t => getTimeOfDay(t.time) === 'Evening');
-            
-            const renderTasks = (tasks, label) => {
-              if (!tasks.length) return null;
-              return (
-                <div key={label} className="time-section">
-                  <h4 className="time-label">{label}</h4>
-                  {tasks.map(task => (
-                    <div key={task.id} className={`task-row ${task.completed ? "completed" : ""}`}>
-                      <label className="task-label">
-                        <input
-                          type="checkbox"
-                          checked={task.completed}
-                          onChange={() => toggleTask(task.id, task.completed)}
-                        />
-                        <span className="task-time">
-                          {task.is_all_day ? "All Day" : formatTime(task.time)}
-                        </span>
-                        <span className="task-text">{task.title}</span>
-                      </label>
-                      {task.category && (
-                        <span className="category-tag">{task.category}</span>
-                      )}
-                      <button className="delete-btn" onClick={() => deleteTask(task.id)}>×</button>
-                    </div>
-                  ))}
-                </div>
-              );
-            };
-            
-            return (
-              <>
-                {renderTasks(morningTasks, 'Morning')}
-                {renderTasks(afternoonTasks, 'Afternoon')}
-                {renderTasks(eveningTasks, 'Evening')}
-              </>
-            );
           })()}
         </div>
       )}
 
+      {/* Add Habit Modal */}
       {showAddHabit && (
-        <div className="modal-overlay" onClick={() => setShowAddHabit(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>New Habit</h2>
-              <button onClick={() => setShowAddHabit(false)}>×</button>
-            </div>
-            
-            <div className="modal-content">
-              <input
-                className="input"
-                placeholder="What habit do you want to build?"
-                name="habitTitle"
-                value={newTask}
-                onChange={(e) => setNewTask(e.target.value)}
-              />
-              
-              <select
-                className="input"
-                name="habitCategory"
-                value={taskCategory}
-                onChange={(e) => setTaskCategory(e.target.value)}
-              >
-                {categoriesList.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-
-              <div className="identity-selector">
-                <p>Builds Identity:</p>
-                <div className="identity-options">
-                  {identityOptions.map(id => (
-                    <button
-                      key={id.id}
-                      className={`identity-option ${identityTags.includes(id.id) ? "selected" : ""}`}
-                      onClick={() => {
-                        setIdentityTags(prev => 
-                          prev.includes(id.id)
-                            ? prev.filter(i => i !== id.id)
-                            : [...prev, id.id]
-                        );
-                      }}
-                    >
-                      {id.emoji} {id.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="form-row">
-                <select
-                  className="input"
-                  name="habitDay"
-                  value={taskDay}
-                  onChange={(e) => setTaskDay(e.target.value)}
-                >
-                  {days.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    name="isAllDay"
-                    checked={isAllDay}
-                    onChange={(e) => setIsAllDay(e.target.checked)}
-                  />
-                  All Day
-                </label>
-              </div>
-
-              {!isAllDay && (
-                <select
-                  className="input"
-                  name="habitTime"
-                  value={taskTime}
-                  onChange={(e) => setTaskTime(e.target.value)}
-                >
-                  {Array.from({ length: 48 }, (_, i) => {
-                    const hours = Math.floor(i / 2);
-                    const mins = (i % 2) * 30;
-                    const hour12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-                    const ampm = hours < 12 ? "AM" : "PM";
-                    return (
-                      <option key={i} value={`${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`}>
-                        {`${hour12}:${mins.toString().padStart(2, "0")} ${ampm}`}
-                      </option>
-                    );
-                  })}
-                </select>
-              )}
-
-              <input
-                className="input"
-                placeholder="Two-minute version (optional)"
-                value={twoMinVersion}
-                onChange={(e) => setTwoMinVersion(e.target.value)}
-              />
-
-              <button className="button" onClick={addHabit}>Create Habit</button>
-            </div>
-          </div>
-        </div>
+        <AddHabitModal 
+          onClose={() => setShowAddHabit(false)}
+          onAdd={onAddHabit}
+          categories={categoriesList}
+          days={days}
+          identityOptions={identityOptions}
+        />
       )}
+    </div>
+  );
+}
 
-      {showFrictionModal && frictionTask && (
-        <div className="modal-overlay" onClick={() => setShowFrictionModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Almost Done!</h2>
-              <button onClick={() => setShowFrictionModal(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              <p className="friction-text">
-                You're uncompleting "{frictionTask.title}". What happened?
-              </p>
-              
-              <input
-                className="input"
-                placeholder="Reason (optional)"
-                value={frictionReason}
-                onChange={(e) => setFrictionReason(e.target.value)}
-              />
+// Add Habit Modal
+function AddHabitModal({ onClose, onAdd, categories, days, identityOptions }) {
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState(categories[0]);
+  const [time, setTime] = useState("09:00");
+  const [isAllDay, setIsAllDay] = useState(false);
 
-              <div className="friction-buttons">
-                <button className="button primary" onClick={submitTwoMinute}>
-                  ✨ Did 2-min version
-                </button>
-                <button className="button primary" onClick={submitWithReason}>
-                  ✓ Completed anyway
-                </button>
-                <button className="button secondary" onClick={skipHabit}>
-                  Skip for today
-                </button>
-              </div>
-            </div>
-          </div>
+  const handleSubmit = () => {
+    if (!title.trim()) return;
+    onAdd(title, category, time, isAllDay);
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Add Habit</h2>
+          <button onClick={onClose}>×</button>
         </div>
-      )}
-
-      {showAddIdentity && (
-        <div className="modal-overlay" onClick={() => setShowAddIdentity(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>New Identity</h2>
-              <button onClick={() => setShowAddIdentity(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              <input
-                className="input"
-                placeholder="Identity name (e.g., Radiant Woman)"
-                value={newIdentityName}
-                onChange={(e) => setNewIdentityName(e.target.value)}
-              />
-              
-              <select
-                className="input"
-                value={newIdentityEmoji}
-                onChange={(e) => setNewIdentityEmoji(e.target.value)}
-              >
-                <option value="✨">✨ Radiant</option>
-                <option value="💎">💎 Precious</option>
-                <option value="🌟">🌟 Star</option>
-                <option value="🔥">🔥 Fire</option>
-                <option value="💪">💪 Strong</option>
-                <option value="🧘">🧘 Calm</option>
-                <option value="⚡">⚡ Power</option>
-                <option value="🌸">🌸 Bloom</option>
-                <option value="💰">💰 Wealth</option>
-                <option value="🎯">🎯 Focus</option>
-              </select>
-
-              <button className="button" onClick={addIdentity}>Create Identity</button>
-            </div>
-          </div>
+        <div className="modal-content">
+          <input
+            className="input"
+            placeholder="Habit title"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+          />
+          <select 
+            className="input"
+            value={category}
+            onChange={e => setCategory(e.target.value)}
+          >
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={isAllDay} onChange={e => setIsAllDay(e.target.checked)} />
+            All Day
+          </label>
+          {!isAllDay && (
+            <input
+              type="time"
+              className="input"
+              value={time}
+              onChange={e => setTime(e.target.value)}
+            />
+          )}
+          <button className="button" onClick={handleSubmit}>Add Habit</button>
         </div>
-      )}
-
-      {showArchetypeModal && selectedArchetype && (
-        <div className="modal-overlay" onClick={() => setShowArchetypeModal(false)}>
-          <div className="modal archetype-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="archetype-modal-emoji">{selectedArchetype.emoji}</span>
-              <h2>{selectedArchetype.name}</h2>
-              <button onClick={() => setShowArchetypeModal(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              <p className="archetype-description">{selectedArchetype.description}</p>
-              
-              <div className="archetype-identities">
-                <p className="archetype-section-label">Builds:</p>
-                <div className="archetype-identity-tags">
-                  {(selectedArchetype.default_identities || []).map((id, idx) => (
-                    <span key={idx} className="archetype-identity-tag">{id}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="archetype-habits">
-                <p className="archetype-section-label">Template Habits:</p>
-                <ul className="archetype-habits-list">
-                  {((selectedArchetype.template_habits || [])).map((habit, idx) => (
-                    <li key={idx}>
-                      <span className="habit-title">{habit.title}</span>
-                      {habit.twoMin && (
-                        <span className="habit-two-min">2-min: {habit.twoMin}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <button 
-                className="button adopt-button" 
-                onClick={() => adoptArchetype(selectedArchetype)}
-                disabled={isAdopting}
-              >
-                {isAdopting ? 'Adopting...' : `Adopt ${selectedArchetype.name}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="glow-score-display">
-        <span className="glow-score-label">Today's Glow</span>
-        <span className="glow-score-value">{getGlowScore()} ✧</span>
       </div>
-        </>
-      )}
+    </div>
+  );
+}
+
+// Insights Page Component
+function InsightsPage({ tasks, completionLogs, categoriesList, days }) {
+  // Calculate category progress (0-100)
+  const getCategoryProgress = (category) => {
+    const categoryTasks = tasks.filter(t => t.category === category);
+    if (categoryTasks.length === 0) return 0;
+    const completed = categoryTasks.filter(t => t.completed).length;
+    return Math.round((completed / categoryTasks.length) * 100);
+  };
+
+  // Glow score is average of all categories
+  const glowScore = () => {
+    const progress = categoriesList.map(c => getCategoryProgress(c));
+    const valid = progress.filter(p => p > 0);
+    if (valid.length === 0) return 0;
+    return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
+  };
+
+  return (
+    <div className="insights-page">
+      <h1 className="title">Insights ✧</h1>
       
-      <FeatureTooltip 
-        show={showTooltip} 
-        target={tooltipTarget} 
-        onClose={() => setShowTooltip(null)} 
-      />
+      <div className="insights-section">
+        <h2>Weekly Progress</h2>
+        <div className="glow-score-display">
+          <span className="glow-score-value large">{glowScore()} ✧</span>
+        </div>
+      </div>
+
+      <div className="insights-section">
+        <h2>Category Progress</h2>
+        {categoriesList.map(cat => (
+          <div key={cat} className="category-progress">
+            <div className="category-header">
+              <span>{cat}</span>
+              <span>{getCategoryProgress(cat)}%</span>
+            </div>
+            <div className="progress-bar">
+              <div 
+                className="progress-fill" 
+                style={{ width: `${getCategoryProgress(cat)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Growth Page Component
+function GrowthPage({ identities, tasks, completionLogs, categoriesList }) {
+  const [showAddGoal, setShowAddGoal] = useState(false);
+  const [goals, setGoals] = useState(() => {
+    const saved = localStorage.getItem('longTermGoals');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [newGoal, setNewGoal] = useState({ title: '', category: 'Health', timeframe: '3m' });
+  
+  const timeframes = [
+    { value: '3m', label: '3 Months' },
+    { value: '6m', label: '6 Months' },
+    { value: '1y', label: '1 Year' },
+    { value: '3y', label: '3 Years' },
+    { value: '5y', label: '5 Years' },
+  ];
+  
+  const addGoal = (e) => {
+    e.preventDefault();
+    if (!newGoal.title.trim()) return;
+    const goal = {
+      ...newGoal,
+      id: Date.now(),
+      createdAt: new Date().toISOString(),
+      progress: 0,
+    };
+    const updatedGoals = [...goals, goal];
+    setGoals(updatedGoals);
+    localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
+    setNewGoal({ title: '', category: 'Health', timeframe: '3m' });
+    setShowAddGoal(false);
+  };
+  
+  const deleteGoal = (id) => {
+    const updatedGoals = goals.filter(g => g.id !== id);
+    setGoals(updatedGoals);
+    localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
+  };
+  
+  // Calculate identity progress scores
+  const getIdentityProgress = (identityId) => {
+    const logs = completionLogs.filter(l => l.identity_id === identityId);
+    return logs.length;
+  };
+  
+  return (
+    <div className="growth-page">
+      <h1 className="title">Growth ✧</h1>
+      
+      <div className="growth-section">
+        <div className="section-header">
+          <h2>Long-term Goals</h2>
+          <button className="add-btn" onClick={() => setShowAddGoal(!showAddGoal)}>
+            {showAddGoal ? '×' : '+'}
+          </button>
+        </div>
+        
+        {showAddGoal && (
+          <form onSubmit={addGoal} className="goal-form">
+            <input
+              className="input"
+              type="text"
+              placeholder="Goal title..."
+              value={newGoal.title}
+              onChange={(e) => setNewGoal({...newGoal, title: e.target.value})}
+            />
+            <select
+              className="input"
+              value={newGoal.category}
+              onChange={(e) => setNewGoal({...newGoal, category: e.target.value})}
+            >
+              {categoriesList.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <select
+              className="input"
+              value={newGoal.timeframe}
+              onChange={(e) => setNewGoal({...newGoal, timeframe: e.target.value})}
+            >
+              {timeframes.map(tf => (
+                <option key={tf.value} value={tf.value}>{tf.label}</option>
+              ))}
+            </select>
+            <button type="submit" className="button">Add Goal</button>
+          </form>
+        )}
+        
+        {goals.length === 0 ? (
+          <p className="empty-message">No long-term goals yet. Add one to start tracking your growth!</p>
+        ) : (
+          <div className="goals-list">
+            {goals.map(goal => (
+              <div key={goal.id} className="goal-item">
+                <div className="goal-info">
+                  <span className="goal-title">{goal.title}</span>
+                  <div className="goal-meta">
+                    <span className="goal-category">{goal.category}</span>
+                    <span className="goal-timeframe">
+                      {timeframes.find(tf => tf.value === goal.timeframe)?.label}
+                    </span>
+                  </div>
+                </div>
+                <button className="delete-btn" onClick={() => deleteGoal(goal.id)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="growth-section">
+        <h2>Identity Development</h2>
+        <p className="section-hint">Your growth across identity traits</p>
+        
+        {identities.length === 0 ? (
+          <p className="empty-message">No identities yet. Adopt an archetype to build your identities.</p>
+        ) : (
+          <div className="identities-progress">
+            {identities.map(id => {
+              const progress = getIdentityProgress(id.id);
+              return (
+                <div key={id.id} className="identity-progress-item">
+                  <div className="identity-info">
+                    <span className="identity-emoji">{id.emoji}</span>
+                    <span className="identity-name">{id.name}</span>
+                  </div>
+                  <div className="identity-score-display">
+                    <span className="score-number">{progress}</span>
+                    <span className="score-label">pts</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Community Page Component
+function CommunityPage() {
+  return (
+    <div className="community-page">
+      <h1 className="title">Glow Community ✧</h1>
+      
+      <div className="community-section">
+        <h2>Accountability Partners</h2>
+        <p className="empty-message">Add friends to be accountability partners</p>
+      </div>
+
+      <div className="community-section">
+        <h2>Challenges</h2>
+        <p className="empty-message">Join challenges with your community</p>
+      </div>
+
+      <div className="community-section">
+        <h2>Streak Competitions</h2>
+        <p className="empty-message">Compete with friends on streaks</p>
+      </div>
     </div>
   );
 }
