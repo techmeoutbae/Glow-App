@@ -269,9 +269,8 @@ function GlowApp({ session }) {
   
   // Check for first-time users and show onboarding
   useEffect(() => {
-    const saved = localStorage.getItem('adoptedArchetypes');
-    const hasArchetypes = saved && JSON.parse(saved).length > 0;
-    if (!hasArchetypes) {
+    const hasCompletedOnboarding = localStorage.getItem('hasCompletedOnboarding');
+    if (!hasCompletedOnboarding) {
       setOnboardingStep('welcome');
     }
   }, []);
@@ -287,7 +286,7 @@ function GlowApp({ session }) {
   });
 
   // Show all tasks from all archetypes
-  const [showAllTasks, setShowAllTasks] = useState(false);
+  const [showAllTasks, setShowAllTasks] = useState(true);
 
   // Track which archetypes user has adopted
   const [adoptedArchetypes, setAdoptedArchetypes] = useState(() => {
@@ -295,11 +294,22 @@ function GlowApp({ session }) {
     return saved ? JSON.parse(saved) : [];
   });
   
+  // Force refresh after task toggle
+  const [refreshKey, setRefreshKey] = useState(0);
+  
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  
+  // Categories
+  const defaultCategories = ["Health", "Mindset", "Finances", "Beauty", "Career", "Relationships", "Spirituality"];
+  const [customCategories, setCustomCategories] = useState(() => {
+    const saved = localStorage.getItem('customCategories');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const categoriesList = [...defaultCategories, ...customCategories];
   
   // Form states
   const [newTask, setNewTask] = useState("");
-  const [taskCategory, setTaskCategory] = useState("Growth");
+  const [taskCategory, setTaskCategory] = useState(() => defaultCategories[0] || "Health");
   const [taskTime, setTaskTime] = useState("09:00");
   const [taskDay, setTaskDay] = useState("Today");
   const [isAllDay, setIsAllDay] = useState(false);
@@ -310,25 +320,7 @@ function GlowApp({ session }) {
   const [newIdentityName, setNewIdentityName] = useState("");
   const [newIdentityEmoji, setNewIdentityEmoji] = useState("✨");
 
-  // Categories: Health, Mindset, Finances, Beauty
-  const categoriesList = ["Health", "Mindset", "Finances", "Beauty"];
   const days = ["Today", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  
-  // Helper to check if task is completed for a specific date
-  const isTaskCompletedOn = (taskId, dateStr) => {
-    return completionLogs.some(log => 
-      log.task_id === taskId && 
-      log.completed_at && 
-      log.completed_at.startsWith(dateStr) &&
-      (!log.friction_reason || log.friction_reason !== "skipped")
-    );
-  };
-  
-  // Helper to check if task is completed today
-  const isCompletedToday = (taskId) => {
-    const today = new Date().toISOString().split('T')[0];
-    return isTaskCompletedOn(taskId, today);
-  };
   
   // Midnight reset for daily habits
   useEffect(() => {
@@ -339,11 +331,11 @@ function GlowApp({ session }) {
       if (lastReset !== today) {
         // It's a new day - reset all daily habits
         const resetDailyHabits = async () => {
-          const { data: tasks } = await supabase.from("Tasks").select("id, is_all_day");
+          const { data: tasks } = await supabase.from("tasks").select("id, is_all_day");
           if (tasks) {
             for (const task of tasks) {
               if (!task.is_all_day) {
-                await supabase.from("Tasks").update({ completed: false }).eq("id", task.id);
+                await supabase.from("tasks").update({ completed: false }).eq("id", task.id);
               }
             }
           }
@@ -421,30 +413,47 @@ function GlowApp({ session }) {
   }, []);
 
   async function loadData() {
+    const userId = session?.user?.id;
+    
     try {
-      const { data: tasksData, error: tasksError } = await supabase
-        .from("Tasks")
+      let query = supabase
+        .from("tasks")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(50);
       
-      logError("Tasks.select", { error: tasksError });
+      // Filter by user if logged in
+      if (userId) {
+        query = query.eq("user_id", userId);
+      }
+      
+      const { data: tasksData, error: tasksError } = await query;
+      
+      logError("tasks.select", { error: tasksError });
       setTasks(tasksData || []);
     } catch (e) { 
       console.error("Tasks load error:", e); 
     }
 
     try {
-      const result = await supabase.from("DayLogs").select("*").limit(10);
+      const result = await supabase.from("daylogs").select("*").limit(10);
       logError("DayLogs.select", result);
       setDayLogs(result.data || []);
     } catch (e) { /* ignore */ }
 
     try {
-      const result = await supabase.from("completion_logs").select("*").order("completed_at", { ascending: false });
-      logError("completion_logs.select", result);
-      setCompletionLogs(result.data || []);
-    } catch (e) { /* ignore */ }
+      // Get all completion logs (remove user filter for now)
+      const result = await supabase.from("completion_logs").select("*");
+      if (!result.error) {
+        setCompletionLogs(result.data || []);
+      } else {
+        console.error("completion_logs error:", result.error);
+        setCompletionLogs([]);
+      }
+    } catch (e) { 
+      console.error("completion_logs exception:", e);
+      setCompletionLogs([]); 
+    }
 
     try {
       const result = await supabase.from("identities").select("*").limit(10);
@@ -474,7 +483,7 @@ function GlowApp({ session }) {
     
     // Check if tasks already exist for this archetype
     const { data: existingTasks } = await supabase
-      .from("Tasks")
+      .from("tasks")
       .select("id")
       .eq("archetype_id", selectedArchetype.id)
       .eq("user_id", userId);
@@ -486,6 +495,7 @@ function GlowApp({ session }) {
         : [...adoptedArchetypes, selectedArchetype];
       setAdoptedArchetypes(newAdopted);
       localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
+      localStorage.setItem('hasCompletedOnboarding', 'true');
       setOnboardingStep(null);
       setSelectedArchetype(null);
       setTemplateHabits([]);
@@ -562,7 +572,7 @@ function GlowApp({ session }) {
       const isAllDay = !habit.time;
       const habitDays = habit.days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
       
-      const result = await supabase.from("Tasks").insert({
+      const result = await supabase.from("tasks").insert({
         title: habit.title,
         category: category,
         page: page,
@@ -574,10 +584,11 @@ function GlowApp({ session }) {
         time: isAllDay ? null : habitTime,
         days: habitDays,
       });
-      logError("Tasks.insert", result);
+      logError("tasks.insert", result);
     }
 
     setOnboardingStep(null);
+    localStorage.setItem('hasCompletedOnboarding', 'true');
     setSelectedArchetype(null);
     setTemplateHabits([]);
     setIsAdopting(false);
@@ -610,7 +621,7 @@ function GlowApp({ session }) {
     const page = (taskCategory === "Work" || taskCategory === "School") ? "work" : currentPage;
 
     try {
-      const { error } = await supabase.from("Tasks").insert({
+      const { error } = await supabase.from("tasks").insert({
         title: newTask,
         category: taskCategory,
         completed: false,
@@ -625,7 +636,7 @@ function GlowApp({ session }) {
         user_id: session?.user?.id,
         streak: 0,
       });
-      logError("Tasks.insert (addHabit)", { error });
+      logError("tasks.insert (addHabit)", { error });
 
       if (!error) {
         setNewTask("");
@@ -637,48 +648,81 @@ function GlowApp({ session }) {
     } catch (e) { console.log("Add habit error:", e); }
   }
 
-  async function toggleTask(id, completed, task = null) {
-    const today = new Date().toISOString().split('T')[0];
+  async function toggleTask(id, completed, task = null, date = null) {
+    try {
+      const today = date || new Date().toISOString().split('T')[0];
+      const completionKey = `task_completed_${today}_${id}`;
+      
+      if (completed) {
+        localStorage.removeItem(completionKey);
+      } else {
+        localStorage.setItem(completionKey, 'true');
+        setShowGlowAnimation(true);
+        // Auto-close after 3 seconds
+        setTimeout(() => setShowGlowAnimation(false), 3000);
+      }
+      
+      // Save daily average after toggling
+      saveDailyAverage();
+      
+      // Force re-render to update scores from localStorage
+      setRefreshKey(k => k + 1);
+    } catch (e) {
+      console.error('Toggle task error:', e);
+    }
+  }
+
+  // Save daily average to localStorage
+  function saveDailyAverage() {
+    const todayISO = new Date().toISOString().split('T')[0];
     
-    if (completed) {
-      // User is unmarking - remove today's completion from completion_logs
-      const { data: existingLogs } = await supabase
-        .from("completion_logs")
-        .select("*")
-        .eq("task_id", id)
-        .gte("completed_at", today)
-        .lt("completed_at", today + "T23:59:59");
-      
-      if (existingLogs && existingLogs.length > 0) {
-        for (const log of existingLogs) {
-          await supabase.from("completion_logs").delete().eq("id", log.id);
-        }
+    // Get used categories
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return 0;
+    
+    let totalProgress = 0;
+    let categoryCount = 0;
+    
+    for (const category of usedCategories) {
+      const categoryTasks = tasks.filter(t => t.category === category);
+      if (categoryTasks.length > 0) {
+        const completed = categoryTasks.filter(t => 
+          localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+        ).length;
+        totalProgress += (completed / categoryTasks.length) * 100;
+        categoryCount++;
       }
-    } else {
-      // User is marking complete - add to completion_logs
-      await supabase.from("completion_logs").insert({
-        task_id: id,
-        user_id: session?.user?.id,
-        completed_at: new Date().toISOString(),
-      });
-      
-      // If task has identity tags, log those too
-      if (task?.identity_tags) {
-        for (const identityId of task.identity_tags) {
-          await supabase.from("completion_logs").insert({
-            task_id: id,
-            identity_id: identityId,
-            user_id: session?.user?.id,
-            completed_at: new Date().toISOString(),
-          });
-        }
-      }
-      
-      setShowGlowAnimation(true);
     }
     
-    loadData();
+    const dailyAverage = categoryCount > 0 ? Math.round(totalProgress / categoryCount) : 0;
+    
+    // Store today's average
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    history[todayISO] = dailyAverage;
+    localStorage.setItem('progressHistory', JSON.stringify(history));
+    
+    return dailyAverage;
   }
+
+  // Helper to check if task is completed today (uses localStorage)
+  const isCompletedToday = (taskId) => {
+    const today = new Date().toISOString().split('T')[0];
+    return localStorage.getItem(`task_completed_${today}_${taskId}`) === 'true';
+  };
+
+  // Get all completed task IDs for today
+  const getCompletedTaskIds = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const completed = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`task_completed_${today}_`)) {
+        const taskId = key.replace(`task_completed_${today}_`, '');
+        completed.push(taskId);
+      }
+    }
+    return completed;
+  };
 
   // Handle actual completion after friction
   async function confirmComplete() {
@@ -690,13 +734,12 @@ function GlowApp({ session }) {
         identity_id: identityId,
         user_id: session?.user?.id,
         was_two_minute: true,
-        completed_at: new Date().toISOString(),
       });
       logError("completion_logs.insert", result);
     }
 
     await supabase
-      .from("Tasks")
+      .from("tasks")
       .update({ completed: true })
       .eq("id", frictionTask.id);
 
@@ -716,11 +759,10 @@ function GlowApp({ session }) {
       user_id: session?.user?.id,
       was_two_minute: false,
       friction_reason: frictionReason,
-      completed_at: new Date().toISOString(),
     });
 
     await supabase
-      .from("Tasks")
+      .from("tasks")
       .update({ completed: true })
       .eq("id", frictionTask.id);
 
@@ -740,11 +782,10 @@ function GlowApp({ session }) {
       user_id: session?.user?.id,
       was_two_minute: false,
       friction_reason: frictionReason || "skipped",
-      completed_at: new Date().toISOString(),
     });
 
     await supabase
-      .from("Tasks")
+      .from("tasks")
       .update({ completed: false })
       .eq("id", frictionTask.id);
 
@@ -755,8 +796,8 @@ function GlowApp({ session }) {
   }
 
   async function deleteTask(id) {
-    const result = await supabase.from("Tasks").delete().eq("id", id);
-    logError("Tasks.delete", result);
+    const result = await supabase.from("tasks").delete().eq("id", id);
+    logError("tasks.delete", result);
     loadData();
   }
 
@@ -770,7 +811,7 @@ function GlowApp({ session }) {
     if (!editingHabit) return;
 
     const result = await supabase
-      .from("Tasks")
+      .from("tasks")
       .update({
         title: editingHabit.title,
         category: editingHabit.category,
@@ -778,7 +819,7 @@ function GlowApp({ session }) {
         is_all_day: editingHabit.is_all_day,
       })
       .eq("id", editingHabit.id);
-    logError("Tasks.update (editHabit)", result);
+    logError("tasks.update (editHabit)", result);
 
     setShowEditHabit(false);
     setEditingHabit(null);
@@ -815,7 +856,7 @@ function GlowApp({ session }) {
     if (!confirmed) return;
     
     // Delete tasks associated with this archetype
-    await supabase.from("Tasks").delete().eq("archetype_id", archetype.id);
+    await supabase.from("tasks").delete().eq("archetype_id", archetype.id);
     
     // Delete identities associated with this archetype
     await supabase.from("identities").delete().eq("archetype_id", archetype.id);
@@ -856,6 +897,7 @@ function GlowApp({ session }) {
       // Just switch to the adopted archetype
       setActiveArchetype(archetype);
       localStorage.setItem('activeArchetype', JSON.stringify(archetype));
+      localStorage.setItem('hasCompletedOnboarding', 'true');
       setOnboardingStep(null);
     } else {
       // New archetype - go to template editor
@@ -883,7 +925,7 @@ function GlowApp({ session }) {
     if (!confirmed) return;
     
     // Delete tasks associated with this archetype
-    await supabase.from("Tasks").delete().eq("archetype_id", archetype.id);
+    await supabase.from("tasks").delete().eq("archetype_id", archetype.id);
     
     // Delete identities associated with this archetype
     await supabase.from("identities").delete().eq("archetype_id", archetype.id);
@@ -900,19 +942,43 @@ function GlowApp({ session }) {
     loadData();
   }
 
-  const getGlowScore = () => {
-    const today = new Date().toDateString();
-    const todayLogs = completionLogs.filter(l => 
-      new Date(l.completed_at).toDateString() === today
-    );
-    const completedCount = todayLogs.filter(l => !l.friction_reason || l.friction_reason !== "skipped").length;
-    return completedCount * 10;
+  // Calculate category progress based on localStorage completion
+  const getCategoryProgress = (category) => {
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const todayISO = new Date().toISOString().split('T')[0];
+    const categoryTasks = tasks.filter(t => {
+      if (t.category !== category) return false;
+      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+      return taskDays?.includes(today) || t.is_all_day;
+    });
+    if (categoryTasks.length === 0) return 0;
+    const completed = categoryTasks.filter(t => 
+      localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+    ).length;
+    return Math.round((completed / categoryTasks.length) * 100);
   };
 
+  const getGlowScore = () => {
+    const categories = ["Health", "Mindset", "Finances", "Beauty"];
+    const categoryScores = categories.map(cat => getCategoryProgress(cat));
+    const validScores = categoryScores.filter(s => s > 0);
+    if (validScores.length === 0) return 0;
+    const average = validScores.reduce((a, b) => a + b, 0) / validScores.length;
+    return Math.round(average);
+  };
+
+  // Score based on completed tasks (1 point per task)
   const getIdentityScore = (identityId) => {
-    const logs = completionLogs.filter(l => l.identity_id === identityId);
-    const completed = logs.filter(l => !l.friction_reason || l.friction_reason !== "skipped");
-    return completed.length * 10;
+    const identity = identities.find(i => i.id === identityId);
+    if (!identity) return 0;
+    // Use localStorage to check completion status
+    const today = new Date().toISOString().split('T')[0];
+    const relatedTasks = tasks.filter(t => 
+      t.identity_tags && t.identity_tags.includes(identityId)
+    );
+    return relatedTasks.filter(t => 
+      localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true'
+    ).length;
   };
 
   // Get identities based on current view
@@ -974,7 +1040,10 @@ function GlowApp({ session }) {
       {onboardingStep === 'welcome' && (
         <OnboardingWelcome 
           onNext={() => setOnboardingStep('choose')}
-          onSkip={() => setOnboardingStep(null)}
+          onSkip={() => {
+            localStorage.setItem('hasCompletedOnboarding', 'true');
+            setOnboardingStep(null);
+          }}
         />
       )}
 
@@ -1211,9 +1280,9 @@ function GlowApp({ session }) {
 
       {/* Glow Animation Overlay */}
       {showGlowAnimation && (
-        <div className="glow-overlay">
+        <div className="glow-overlay" onClick={() => setShowGlowAnimation(false)}>
           <div className="sparkles"></div>
-          <button className="glow-close-btn" onClick={() => setShowGlowAnimation(false)}>×</button>
+          <button className="glow-close-btn" onClick={(e) => { e.stopPropagation(); setShowGlowAnimation(false); }}>×</button>
           <div className="glow-burst">✨</div>
           <div className="glow-message">You're on a glow ✨</div>
         </div>
@@ -1292,11 +1361,11 @@ function GlowApp({ session }) {
           activeArchetype={activeArchetype}
           identities={identities}
           completionLogs={completionLogs}
-          isCompletedToday={isCompletedToday}
           onToggleTask={toggleTask}
           onDeleteTask={deleteTask}
           onEditTask={openEditHabit}
           categoriesList={categoriesList}
+          refreshKey={refreshKey}
         />
       )}
 
@@ -1312,7 +1381,6 @@ function GlowApp({ session }) {
           onToggleTask={toggleTask}
           onDeleteTask={deleteTask}
           onEditTask={openEditHabit}
-          isCompletedToday={isCompletedToday}
           categoriesList={categoriesList}
           days={days}
           identityOptions={identityOptions}
@@ -1321,6 +1389,7 @@ function GlowApp({ session }) {
           pageTasks={pageTasks}
           showAllTasks={showAllTasks}
           setShowAllTasks={setShowAllTasks}
+          refreshKey={refreshKey}
         />
       )}
 
@@ -1330,6 +1399,7 @@ function GlowApp({ session }) {
           completionLogs={completionLogs}
           categoriesList={categoriesList}
           days={days}
+          refreshKey={refreshKey}
         />
       )}
 
@@ -1352,8 +1422,23 @@ function GlowApp({ session }) {
 }
 
 // Home Page Component
-function HomePage({ tasks, activeArchetype, identities, completionLogs, isCompletedToday, onToggleTask, onDeleteTask, onEditTask, categoriesList = ["Health", "Mindset", "Finances", "Beauty"] }) {
+function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggleTask, onDeleteTask, onEditTask, categoriesList = ["Health", "Mindset", "Finances", "Beauty"], refreshKey }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  
+  const getCompletedTaskIds = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const completed = new Set();
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`task_completed_${today}_`)) {
+        const taskId = key.replace(`task_completed_${today}_`, '');
+        completed.add(taskId);
+      }
+    }
+    return completed;
+  };
+  
+  const completedIds = getCompletedTaskIds();
   
   const todayTasks = tasks.filter(t => {
     if (!t.archetype_id) return true;
@@ -1361,28 +1446,108 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, isComple
     return taskDays?.includes(today) || t.is_all_day;
   });
 
-  const completedToday = todayTasks.filter(t => isCompletedToday(t.id)).length;
-  const glowScore = completedToday * 10;
+  // Calculate category progress (today only)
+  const getCategoryProgress = (category) => {
+    const categoryTasks = todayTasks.filter(t => t.category === category);
+    if (categoryTasks.length === 0) return 0;
+    const completed = categoryTasks.filter(t => completedIds.has(t.id)).length;
+    return Math.round((completed / categoryTasks.length) * 100);
+  };
 
-  // Calculate streak
+  // Get categories that have tasks
+  const getUsedCategories = () => {
+    const usedCategories = new Set(tasks.map(t => t.category).filter(Boolean));
+    return categoriesList.filter(c => usedCategories.has(c));
+  };
+
+  // Glow score is average of ALL used categories (including 0s)
+  const glowScore = () => {
+    const usedCategories = getUsedCategories();
+    if (usedCategories.length === 0) return 0;
+    const progress = usedCategories.map(c => getCategoryProgress(c));
+    return Math.round(progress.reduce((a, b) => a + b, 0) / progress.length);
+  };
+
+  // Calculate weekly average (last 7 days)
+  const getWeeklyAverage = () => {
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    const today = new Date();
+    let total = 0;
+    let count = 0;
+    
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      if (history[dateStr] !== undefined) {
+        total += history[dateStr];
+        count++;
+      }
+    }
+    
+    return count > 0 ? Math.round(total / count) : 0;
+  };
+
+  // Calculate all-time average
+  const getCumulativeAverage = () => {
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    const values = Object.values(history);
+    if (values.length === 0) return 0;
+    return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  };
+
+  // Calculate streak - only counts if ALL daily habits are completed
   const getStreak = () => {
     let streak = 0;
     const today = new Date();
+    
     for (let i = 0; i < 365; i++) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
-      const hasCompleted = completionLogs.some(l => 
-        l.completed_at && l.completed_at.startsWith(dateStr)
-      );
-      if (hasCompleted) streak++;
-      else if (i > 0) break;
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get tasks for this specific day
+      const tasksForDay = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+          return taskDays?.includes(dayName);
+        }
+        return true;
+      });
+      
+      // If no tasks for this day, skip
+      if (tasksForDay.length === 0) continue;
+      
+      // Check if ALL tasks are completed
+      let allCompleted = true;
+      for (const task of tasksForDay) {
+        const completed = localStorage.getItem(`task_completed_${dateStr}_${task.id}`) === 'true';
+        if (!completed) {
+          allCompleted = false;
+          break;
+        }
+      }
+      
+      // Don't count today if it's still ongoing (no streak yet)
+      const isToday = i === 0;
+      const now = new Date();
+      const isAfter8PM = now.getHours() >= 20;
+      
+      if (allCompleted && (!isToday || isAfter8PM)) {
+        streak++;
+      } else if (i > 0) {
+        break;
+      }
     }
     return streak;
   };
 
   const streak = getStreak();
   const streakLabel = streak >= 30 ? "Full Glow" : streak >= 10 ? "Aura" : streak >= 3 ? "Sparkle" : "";
+  const dailyAvg = glowScore();
+  const weeklyAvg = getWeeklyAverage();
+  const overallAvg = getCumulativeAverage();
 
   return (
     <div className="home-page">
@@ -1390,17 +1555,45 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, isComple
       
       <div className="home-section glow-score-section">
         <h2>Today's Glow</h2>
-        <div className="glow-score-display">
-          <span className="glow-score-value large">{glowScore} ✧</span>
+        <div className="glow-progress-bar-container">
+          <div className="glow-progress-bar" style={{ width: `${dailyAvg}%` }}>
+            <span className="glow-sparkles">✧ ✦ ✧</span>
+          </div>
+        </div>
+        <span className="glow-percentage">{dailyAvg}%</span>
+      </div>
+
+      <div className="home-section streak-section">
+        <h2>Weekly Glow</h2>
+        <div className="glow-progress-bar-container">
+          <div className="glow-progress-bar weekly" style={{ width: `${weeklyAvg}%` }}>
+            <span className="glow-sparkles">✧ ✦ ✧</span>
+          </div>
+        </div>
+        <span className="glow-percentage">{weeklyAvg}%</span>
+      </div>
+
+      <div className="home-section glow-score-section">
+        <h2>Glow Streak</h2>
+        <div className="glow-progress-bar-container">
+          <div className="glow-progress-bar streak" style={{ width: `${Math.min(streak * 10, 100)}%` }}>
+            <span className="glow-sparkles">🔥</span>
+          </div>
+        </div>
+        <div className="streak-info">
+          <span className="glow-percentage">{streak || 0} days</span>
+          {streak === 0 && (
+            <span className="streak-hint">Complete all daily habits to get a Glow Streak</span>
+          )}
           {streakLabel && <span className="streak-badge">{streakLabel}</span>}
         </div>
       </div>
 
-      <div className="home-section streak-section">
-        <h2>Streak Progress</h2>
-        <div className="streak-display">
-          <span className="streak-number">{streak}</span>
-          <span className="streak-label">day streak</span>
+      <div className="home-section glow-score-section">
+        <h2>Glow Score</h2>
+        <div className="glow-score-display">
+          <span className="glow-score-value large light">{overallAvg}% ✧</span>
+          <span className="streak-label">all time average</span>
         </div>
       </div>
 
@@ -1419,27 +1612,29 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, isComple
               // Add tasks without a category or with unknown category
               groupedTasks['Other'] = todayTasks.filter(t => !t.category || !categoriesList.includes(t.category));
               
-              return Object.entries(groupedTasks).map(([category, tasks]) => {
-                if (tasks.length === 0) return null;
+              return Object.entries(groupedTasks).map(([category, taskList]) => {
+                if (taskList.length === 0) return null;
                 return (
                   <div key={category} className="category-group">
                     <h3 className="category-title">{category}</h3>
-                    {tasks.map(task => (
-                      <div key={task.id} className={`habit-item ${isCompletedToday(task.id) ? 'completed' : ''}`}>
-                        <label className="habit-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={isCompletedToday(task.id)}
-                            onChange={() => onToggleTask(task.id, isCompletedToday(task.id), task)}
-                          />
+                    {taskList.map(task => {
+                      const isDone = completedIds.has(task.id);
+                      return (
+                      <div key={task.id} className={`habit-item ${isDone ? 'completed' : ''}`}>
+                        <div 
+                          className="habit-checkbox"
+                          onClick={() => onToggleTask(task.id, isDone, task)}
+                        >
+                          <span className="checkbox-emoji">{isDone ? '✓' : '○'}</span>
                           <span className="habit-text">{task.title}</span>
-                        </label>
+                        </div>
                         <div className="habit-actions">
                           <button className="edit-btn" onClick={() => onEditTask(task)}>✎</button>
                           <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               });
@@ -1451,10 +1646,27 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, isComple
   );
 }
 
+
 // Habits Page Component  
-function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, isCompletedToday, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks }) {
+function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks, refreshKey }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const todayDate = new Date().toDateString();
+
+  const getDateForDay = (dayName) => {
+    const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
+    const targetDay = daysMap[dayName];
+    const todayObj = new Date();
+    const currentDay = todayObj.getDay();
+    const diff = (targetDay - currentDay + 7) % 7;
+    const result = new Date(todayObj);
+    result.setDate(todayObj.getDate() + diff);
+    return result.toISOString().split('T')[0];
+  };
+
+  const isCompletedOnDay = (taskId, dayName) => {
+    const dateStr = getDateForDay(dayName);
+    return localStorage.getItem(`task_completed_${dateStr}_${taskId}`) === 'true';
+  };
 
   return (
     <div className="habits-page">
@@ -1520,10 +1732,10 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
               <div key={day} className={`day-box ${isToday ? 'today' : ''}`} onClick={() => setExpandedDay(day)}>
                 {isToday && <span className="sparkle-icon">✨</span>}
                 <h3>{day}</h3>
-                <p className="day-progress">{dayTasks.filter(t => isCompletedToday(t.id)).length}/{dayTasks.length}</p>
+                <p className="day-progress">{dayTasks.filter(t => isCompletedOnDay(t.id, day)).length}/{dayTasks.length}</p>
                 <div className="day-tasks-preview">
                   {displayTasks.map(task => (
-                    <div key={task.id} className={`task-preview ${isCompletedToday(task.id) ? 'completed' : ''}`}>
+                    <div key={task.id} className={`task-preview ${isCompletedOnDay(task.id, day) ? 'completed' : ''}`}>
                       {task.title}
                     </div>
                   ))}
@@ -1560,13 +1772,15 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
                   return (
                     <div key={category} className="category-group">
                       <h3 className="category-title">{category}</h3>
-                      {tasks.map(task => (
-                        <div key={task.id} className={`task-row ${isCompletedToday(task.id) ? 'completed' : ''}`}>
+                      {tasks.map(task => {
+                          const isCompleted = isCompletedOnDay(task.id, expandedDay);
+                          return (
+                        <div key={task.id} className={`task-row ${isCompleted ? 'completed' : ''}`}>
                           <label className="task-label">
                             <input
                               type="checkbox"
-                              checked={isCompletedToday(task.id)}
-                              onChange={() => onToggleTask(task.id, isCompletedToday(task.id), task)}
+                              checked={isCompleted}
+                              onChange={() => onToggleTask(task.id, isCompleted, task, getDateForDay(expandedDay))}
                             />
                             <span className="task-text">{task.title}</span>
                           </label>
@@ -1575,7 +1789,8 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
                             <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
                           </div>
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
                   );
                 })}
@@ -1593,6 +1808,13 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
           categories={categoriesList}
           days={days}
           identityOptions={identityOptions}
+          onAddCategory={(name) => {
+            if (!customCategories.includes(name) && !defaultCategories.includes(name)) {
+              const updated = [...customCategories, name];
+              setCustomCategories(updated);
+              localStorage.setItem('customCategories', JSON.stringify(updated));
+            }
+          }}
         />
       )}
     </div>
@@ -1600,16 +1822,26 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
 }
 
 // Add Habit Modal
-function AddHabitModal({ onClose, onAdd, categories, days, identityOptions }) {
+function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAddCategory }) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(categories[0]);
   const [time, setTime] = useState("09:00");
   const [isAllDay, setIsAllDay] = useState(false);
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
 
   const handleSubmit = () => {
     if (!title.trim()) return;
     onAdd(title, category, time, isAllDay);
     onClose();
+  };
+
+  const handleAddCategory = () => {
+    if (newCategoryName.trim() && onAddCategory) {
+      onAddCategory(newCategoryName.trim());
+      setNewCategoryName("");
+      setShowNewCategory(false);
+    }
   };
 
   return (
@@ -1626,13 +1858,34 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions }) {
             value={title}
             onChange={e => setTitle(e.target.value)}
           />
-          <select 
-            className="input"
-            value={category}
-            onChange={e => setCategory(e.target.value)}
-          >
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <div className="category-select-wrapper">
+            <select 
+              className="input"
+              value={category}
+              onChange={e => {
+                if (e.target.value === "__new__") {
+                  setShowNewCategory(true);
+                  setCategory(categories[0]);
+                } else {
+                  setCategory(e.target.value);
+                }
+              }}
+            >
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__new__">+ Add New Category</option>
+            </select>
+          </div>
+          {showNewCategory && (
+            <div className="new-category-input">
+              <input
+                className="input"
+                placeholder="New category name"
+                value={newCategoryName}
+                onChange={e => setNewCategoryName(e.target.value)}
+              />
+              <button className="button small" onClick={handleAddCategory}>Add</button>
+            </div>
+          )}
           <label className="checkbox-label">
             <input type="checkbox" checked={isAllDay} onChange={e => setIsAllDay(e.target.checked)} />
             All Day
@@ -1653,29 +1906,166 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions }) {
 }
 
 // Insights Page Component
-function InsightsPage({ tasks, completionLogs, categoriesList, days }) {
-  // Calculate category progress (0-100)
+function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey }) {
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  
+  // Get or set account creation date
+  const getAccountStartDate = () => {
+    let startDate = localStorage.getItem('accountStartDate');
+    if (!startDate) {
+      startDate = new Date().toISOString().split('T')[0];
+      localStorage.setItem('accountStartDate', startDate);
+    }
+    return startDate;
+  };
+
+  // Save daily average to localStorage
+  const saveDailyAverage = () => {
+    const todayISO = new Date().toISOString().split('T')[0];
+    const dailyLogKey = `daily_average_${todayISO}`;
+    
+    // Calculate today's glow score
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return;
+    
+    let totalProgress = 0;
+    let categoryCount = 0;
+    
+    for (const category of usedCategories) {
+      const categoryTasks = tasks.filter(t => t.category === category);
+      if (categoryTasks.length > 0) {
+        const completed = categoryTasks.filter(t => 
+          localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+        ).length;
+        totalProgress += (completed / categoryTasks.length) * 100;
+        categoryCount++;
+      }
+    }
+    
+    const dailyAverage = categoryCount > 0 ? Math.round(totalProgress / categoryCount) : 0;
+    
+    // Store today's average
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    history[todayISO] = dailyAverage;
+    localStorage.setItem('progressHistory', JSON.stringify(history));
+    
+    return dailyAverage;
+  };
+
+  // Calculate cumulative average from account start
+  const getCumulativeAverage = () => {
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    const values = Object.values(history);
+    if (values.length === 0) return 0;
+    return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  };
+
+  // Calculate weekly average (last 7 days)
+  const getWeeklyAverage = () => {
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    const today = new Date();
+    let total = 0;
+    let count = 0;
+    
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      if (history[dateStr] !== undefined) {
+        total += history[dateStr];
+        count++;
+      }
+    }
+    
+    return count > 0 ? Math.round(total / count) : 0;
+  };
+
+  // Calculate monthly average (last 30 days)
+  const getMonthlyAverage = () => {
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    const today = new Date();
+    let total = 0;
+    let count = 0;
+    
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      if (history[dateStr] !== undefined) {
+        total += history[dateStr];
+        count++;
+      }
+    }
+    
+    return count > 0 ? Math.round(total / count) : 0;
+  };
+
+  // Save today's average when page loads
+  useEffect(() => {
+    saveDailyAverage();
+  }, [tasks]);
+
+  // Calculate category progress for today (0-100)
   const getCategoryProgress = (category) => {
-    const categoryTasks = tasks.filter(t => t.category === category);
+    const todayISO = new Date().toISOString().split('T')[0];
+    const categoryTasks = tasks.filter(t => {
+      if (t.category !== category) return false;
+      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+      return taskDays?.includes(today) || t.is_all_day;
+    });
     if (categoryTasks.length === 0) return 0;
-    const completed = categoryTasks.filter(t => t.completed).length;
+    const completed = categoryTasks.filter(t => 
+      localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+    ).length;
     return Math.round((completed / categoryTasks.length) * 100);
   };
 
-  // Glow score is average of all categories
-  const glowScore = () => {
-    const progress = categoriesList.map(c => getCategoryProgress(c));
-    const valid = progress.filter(p => p > 0);
-    if (valid.length === 0) return 0;
-    return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
+  // Get used categories
+  const getUsedCategories = () => {
+    const usedCategories = new Set(tasks.map(t => t.category).filter(Boolean));
+    return categoriesList.filter(c => usedCategories.has(c));
   };
+
+  // Glow score is average of ALL used categories (including 0s)
+  const glowScore = () => {
+    const usedCategories = getUsedCategories();
+    if (usedCategories.length === 0) return 0;
+    const progress = usedCategories.map(c => getCategoryProgress(c));
+    return Math.round(progress.reduce((a, b) => a + b, 0) / progress.length);
+  };
+
+  const cumulativeAvg = getCumulativeAverage();
+  const weeklyAvg = getWeeklyAverage();
+  const monthlyAvg = getMonthlyAverage();
 
   return (
     <div className="insights-page">
       <h1 className="title">Insights ✧</h1>
       
       <div className="insights-section">
-        <h2>Weekly Progress</h2>
+        <h2>Average Progress</h2>
+        <div className="averages-grid">
+          <div className="average-card">
+            <span className="average-label">Today</span>
+            <span className="average-value">{cumulativeAvg > 0 ? cumulativeAvg : glowScore()}%</span>
+          </div>
+          <div className="average-card">
+            <span className="average-label">Week</span>
+            <span className="average-value">{weeklyAvg}%</span>
+          </div>
+          <div className="average-card">
+            <span className="average-label">Month</span>
+            <span className="average-value">{monthlyAvg}%</span>
+          </div>
+          <div className="average-card">
+            <span className="average-label">All Time</span>
+            <span className="average-value">{cumulativeAvg}%</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="insights-section">
+        <h2>Today's Progress</h2>
         <div className="glow-score-display">
           <span className="glow-score-value large">{glowScore()} ✧</span>
         </div>

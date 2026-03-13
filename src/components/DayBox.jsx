@@ -12,6 +12,22 @@ export default function DayBox({ day, tasks, onToggle, onDelete, onClick, catego
   
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const isToday = day === today;
+
+  const getDateForDay = (dayName) => {
+    const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
+    const targetDay = daysMap[dayName];
+    const todayObj = new Date();
+    const currentDay = todayObj.getDay();
+    const diff = (targetDay - currentDay + 7) % 7;
+    const result = new Date(todayObj);
+    result.setDate(todayObj.getDate() + diff);
+    return result.toISOString().split('T')[0];
+  };
+
+  const isCompletedOnDay = (taskId, dayName) => {
+    const dateStr = getDateForDay(dayName);
+    return localStorage.getItem(`task_completed_${dateStr}_${taskId}`) === 'true';
+  };
   
   return (
     <div className="day-box" onClick={onClick}>
@@ -26,13 +42,15 @@ export default function DayBox({ day, tasks, onToggle, onDelete, onClick, catego
         return (
           <div key={cat} className="category-section">
             <div className="category-title">{formatCategory(cat)}</div>
-            {catTasks.map(task => (
-              <div key={task.id} className={`task-row ${task.completed ? "completed" : ""}`}>
+            {catTasks.map(task => {
+              const isCompleted = isCompletedOnDay(task.id, day);
+              return (
+              <div key={task.id} className={`task-row ${isCompleted ? "completed" : ""}`}>
                 <label className="task-label">
                   <input
                     type="checkbox"
-                    checked={task.completed}
-                    onChange={() => onToggle(task.id, task.completed)}
+                    checked={isCompleted}
+                    onChange={() => onToggle(task.id, isCompleted)}
                   />
                   <span className="task-text">{task.title}</span>
                 </label>
@@ -50,7 +68,8 @@ export default function DayBox({ day, tasks, onToggle, onDelete, onClick, catego
                   ×
                 </button>
               </div>
-            ))}
+            );
+            })}
           </div>
         );
       })}

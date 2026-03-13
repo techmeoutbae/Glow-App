@@ -1173,6 +1173,104 @@ body {
   font-weight: bold;
 }
 
+.glow-score-value.light {
+  color: #ffb3d9;
+  text-shadow: 0 0 10px #ff69b4, 0 0 20px #ff69b4;
+}
+
+/* Progress Bar for Glow */
+.glow-progress-bar-container {
+  width: 100%;
+  height: 28px;
+  background: rgba(255, 182, 193, 0.3);
+  border-radius: 14px;
+  overflow: hidden;
+  margin: 10px 0;
+  position: relative;
+}
+
+.glow-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #ff69b4, #ffb6c1);
+  border-radius: 14px;
+  transition: width 0.5s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: fit-content;
+  padding-right: 10px;
+  box-shadow: 0 0 15px #ff69b4;
+}
+
+.glow-progress-bar.weekly {
+  background: linear-gradient(90deg, #da70d6, #ee82ee);
+  box-shadow: 0 0 15px #da70d6;
+}
+
+.glow-progress-bar.streak {
+  background: linear-gradient(90deg, #ff6b6b, #ffa500);
+  box-shadow: 0 0 15px #ff6b6b;
+}
+
+.streak-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.glow-sparkles {
+  color: #fff;
+  font-size: 0.8rem;
+  animation: sparkle 1s infinite alternate;
+}
+
+@keyframes sparkle {
+  0% { opacity: 0.7; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1.1); }
+}
+
+.glow-percentage {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #ff69b4;
+  text-align: center;
+  display: block;
+  margin-top: 4px;
+}
+
+/* Averages Grid */
+.averages-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.average-card {
+  background: var(--theme-card);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.average-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--theme-dark);
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+.average-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--theme-color);
+}
+
 /* Friction Modal */
 .friction-text {
   text-align: center;
@@ -1950,6 +2048,26 @@ body {
   color: var(--theme-dark);
   font-size: 0.95rem;
   margin-top: 4px;
+}
+
+.streak-hint {
+  color: var(--theme-dark);
+  font-size: 0.7rem;
+  opacity: 0.7;
+  margin-top: 4px;
+  text-align: center;
+  max-width: 200px;
+}
+
+.streak-badge {
+  background: var(--theme-color);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  margin-top: 6px;
+  display: inline-block;
 }
 
 .habits-list {
