@@ -16,6 +16,7 @@ export default function App() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [friends, setFriends] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -92,6 +93,24 @@ export default function App() {
 
   return <GlowApp session={session} />;
 }
+
+const loadFriends = async () => {
+  if (!session?.user?.id) return;
+
+  const { data: friendsData, error } = await supabase
+    .from("friends")
+    .select("*")
+    .or(`user_id.eq.${session.user.id},friend_id.eq.${session.user.id}`)
+    .eq("status", "accepted");
+
+  if (error) {
+    console.error("Error loading friends:", error);
+    return;
+  }
+
+  setFriends(friendsData || []);
+};
+
 
 function OnboardingWelcome({ onNext, onSkip }) {
   return (
@@ -335,6 +354,8 @@ function GlowApp({ session }) {
   const [completionLogs, setCompletionLogs] = useState([]);
   const [identities, setIdentities] = useState([]);
   const [archetypes, setArchetypes] = useState([]);
+  const [userName, setUserName] = useState("");
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
   
   // Main navigation: home, habits, insights, growth, community
   const [currentPage, setCurrentPage] = useState("home");
@@ -608,6 +629,25 @@ function GlowApp({ session }) {
 
   async function loadData() {
     const userId = session?.user?.id;
+    const userEmail = session?.user?.email;
+    
+    // Ensure user profile has email and load name
+    if (userId && userEmail) {
+      try {
+        await supabase.from('user_profiles').upsert({
+          id: userId,
+          email: userEmail,
+        }, { onConflict: 'id' });
+        
+        // Load user's name
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('name')
+          .eq('id', userId)
+          .single();
+        if (profile?.name) setUserName(profile.name);
+      } catch (e) { console.log("Profile upsert error:", e); }
+    }
     
     try {
       let query = supabase
@@ -846,12 +886,9 @@ function GlowApp({ session }) {
     }
   }
 
-  async function addHabit(title, category, time, isAllDay) {
-    // Use provided values or fall back to state
+  async function addHabit(title, category) {
     const habitTitle = title || newTask;
     const habitCategory = category || taskCategory;
-    const habitTime = time || taskTime;
-    const habitAllDay = isAllDay !== undefined ? isAllDay : isAllDay;
     
     if (!habitTitle?.trim()) return;
     
@@ -859,40 +896,72 @@ function GlowApp({ session }) {
       ? new Date().toLocaleDateString('en-US', { weekday: 'long' })
       : taskDay;
 
-    // Determine page based on category
     const page = (habitCategory === "Work" || habitCategory === "School") ? "work" : currentPage;
     
-    // Auto-link identities based on category
     const categoryIdents = categoryIdentities[habitCategory] || [];
     const mergedTags = [...new Set([...identityTags, ...categoryIdents])];
 
     try {
-      const { error } = await supabase.from("tasks").insert({
+      const userId = session?.user?.id;
+      
+      const insertData = {
         title: habitTitle,
         category: habitCategory,
-        completed: false,
         page: page,
-        time: habitAllDay ? null : habitTime,
-        is_all_day: habitAllDay,
+        archetype_id: activeArchetype?.id || null,
         day: actualDay,
         days: [actualDay],
         identity_tags: mergedTags,
-        archetype_id: activeArchetype?.id || null,
-        two_minute_version: twoMinVersion || null,
-        user_id: session?.user?.id,
+        is_all_day: true,
         streak: 0,
-      });
-      logError("tasks.insert (addHabit)", { error });
+      };
+      
+      if (userId) {
+        insertData.user_id = userId;
+      }
+      
+      const { data, error } = await supabase.from("tasks").insert(insertData).select();
 
-      if (!error) {
+      if (error) {
+        alert('Error adding habit: ' + error.message);
+      } else {
         setNewTask("");
         setTwoMinVersion("");
         setIdentityTags([]);
         setShowAddHabit(false);
-        loadData();
-        loadData();
+        await loadData();
+        setRefreshKey(k => k + 1);
       }
-    } catch (e) { console.log("Add habit error:", e); }
+    } catch (e) { 
+      console.log("Add habit error:", e); 
+      alert("Error: " + e.message);
+    }
+  }
+  const loadFriends = async () => {
+  if (!session?.user?.id) return;
+
+  const { data: friendsData, error } = await supabase
+    .from('friends')
+    .select('*')
+    .or(`user_id.eq.${session.user.id},friend_id.eq.${session.user.id}`)
+    .eq('status', 'accepted');
+
+  if (error) {
+    console.error("Error loading friends:", error);
+    return;
+  }
+
+  setFriends(friendsData || []);
+};
+
+  async function saveUserName() {
+    if (!session?.user?.id || !userName.trim()) return;
+    await supabase.from('user_profiles').upsert({
+      id: session.user.id,
+      name: userName.trim(),
+    }, { onConflict: 'id' });
+    setShowProfileEdit(false);
+    loadFriends();
   }
 
   async function toggleTask(id, completed, task = null, date = null) {
@@ -998,13 +1067,40 @@ function GlowApp({ session }) {
   };
   
   // Share progress with accountability partner
+  const getStreak = () => {
+  const history = JSON.parse(localStorage.getItem('glowPointsHistory') || '{}');
+  const dates = Object.keys(history).sort().reverse();
+
+  let streak = 0;
+
+  for (let date of dates) {
+    if (history[date] > 0) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  return streak;
+};
+
+const getWeeklyAverage = () => {
+  const history = JSON.parse(localStorage.getItem('glowPointsHistory') || '{}');
+  const values = Object.values(history).slice(-7);
+
+  if (values.length === 0) return 0;
+
+  const total = values.reduce((sum, v) => sum + v, 0);
+  return Math.round(total / values.length);
+};
+
   const shareWithPartner = () => {
     const today = new Date().toISOString().split('T')[0];
     const partnerId = localStorage.getItem('accountabilityPartner');
     if (!partnerId) return;
     
-    const dailyAvg = glowScore ? glowScore() : 0;
-    const streak = getStreak ? getStreak() : 0;
+    const dailyAvg = getGlowScore();
+    const streak = 0;
     const weeklyGlow = getWeeklyAverage ? getWeeklyAverage() : 0;
     const goals = JSON.parse(localStorage.getItem('longTermGoals') || '[]');
     
@@ -1409,15 +1505,13 @@ function GlowApp({ session }) {
   const getPageTasks = () => {
     let filtered = tasks || [];
     
-    // Filter by active archetype unless showAllTasks is enabled
     if (!showAllTasks) {
-      // If no archetype selected, show nothing
       if (!activeArchetype) {
-        return [];
+        const adoptedIds = adoptedArchetypes.map(a => a.id);
+        return filtered.filter(t => !t.archetype_id || adoptedIds.includes(t.archetype_id));
       }
       filtered = filtered.filter(t => t.archetype_id === activeArchetype.id);
     } else {
-      // ShowAllTasks: filter to adopted archetypes only
       const adoptedIds = adoptedArchetypes.map(a => a.id);
       filtered = filtered.filter(t => !t.archetype_id || adoptedIds.includes(t.archetype_id));
     }
@@ -1807,6 +1901,13 @@ function GlowApp({ session }) {
           <span className="nav-icon">💜</span>
           <span className="nav-label">Community</span>
         </button>
+        <button 
+          className="nav-btn"
+          onClick={() => setShowProfileEdit(true)}
+        >
+          <span className="nav-icon">👤</span>
+          <span className="nav-label">Profile</span>
+        </button>
       </nav>
 
       {/* Glow Animation Overlay */}
@@ -1817,6 +1918,29 @@ function GlowApp({ session }) {
           <div className="glow-burst">✨</div>
           <div className="glow-message">You're on a glow! ✨</div>
           <div className="glow-points-added">+{getGlowScore() - (getGlowScore() > 3 ? 3 : 1)}</div>
+        </div>
+      )}
+
+      {/* Profile Edit Modal */}
+      {showProfileEdit && (
+        <div className="modal-overlay" onClick={() => setShowProfileEdit(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Edit Profile</h2>
+              <button onClick={() => setShowProfileEdit(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              <label>Your Name (seen by friends)</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="Enter your name"
+                value={userName}
+                onChange={e => setUserName(e.target.value)}
+              />
+              <button className="button" onClick={saveUserName}>Save</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1953,6 +2077,7 @@ function GlowApp({ session }) {
           completionLogs={completionLogs}
           categoriesList={categoriesList}
           activeArchetype={activeArchetype}
+          getIdentityEmoji={getIdentityEmoji}
         />
       )}
 
@@ -2391,7 +2516,6 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
               const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
               return t.is_all_day || !taskDays || taskDays.includes(day);
             });
-            if (dayTasks.length === 0) return null;
             
             const isToday = day === today;
             const displayTasks = dayTasks.slice(0, 5);
@@ -2401,15 +2525,19 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
               <div key={day} className={`day-box ${isToday ? 'today' : ''}`} onClick={() => setExpandedDay(day)}>
                 {isToday && <span className="sparkle-icon">✨</span>}
                 <h3>{day}</h3>
-                <p className="day-progress">{dayTasks.filter(t => isCompletedOnDay(t.id, day)).length}/{dayTasks.length}</p>
-                <div className="day-tasks-preview">
-                  {displayTasks.map(task => (
-                    <div key={task.id} className={`task-preview ${isCompletedOnDay(task.id, day) ? 'completed' : ''}`}>
-                      {task.title}
-                    </div>
-                  ))}
-                  {hasMore && <div className="more-tasks">+{dayTasks.length - 5} more</div>}
-                </div>
+                <p className="day-progress">{dayTasks.length > 0 ? `${dayTasks.filter(t => isCompletedOnDay(t.id, day)).length}/${dayTasks.length}` : 'No habits'}</p>
+                {dayTasks.length > 0 ? (
+                  <div className="day-tasks-preview">
+                    {displayTasks.map(task => (
+                      <div key={task.id} className={`task-preview ${isCompletedOnDay(task.id, day) ? 'completed' : ''}`}>
+                        {task.title}
+                      </div>
+                    ))}
+                    {hasMore && <div className="more-tasks">+{dayTasks.length - 5} more</div>}
+                  </div>
+                ) : (
+                  <p className="empty-hint">Click to add habits</p>
+                )}
               </div>
             );
           })}
@@ -2424,7 +2552,12 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
               return t.is_all_day || !taskDays || taskDays.includes(expandedDay);
             });
             
-            if (!dayTasks.length) return <p className="empty">No habits</p>;
+            if (!dayTasks.length) return (
+              <div className="empty-state">
+                <p className="empty">No habits for {expandedDay}</p>
+                <button className="button" onClick={() => setShowAddHabit(true)}>+ Add a Habit</button>
+              </div>
+            );
             
             // Group tasks by category
             const groupedTasks = {};
@@ -2494,22 +2627,17 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
 function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAddCategory }) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(categories[0]);
-  const [time, setTime] = useState("09:00");
-  const [isAllDay, setIsAllDay] = useState(false);
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
 
   const handleSubmit = () => {
     if (!title.trim()) return;
-    // Pass the values to update state in parent, then close
-    onAdd(title, category, time, isAllDay);
+    onAdd(title, category);
   };
   
   const handleClose = () => {
     setTitle("");
     setCategory(categories[0]);
-    setTime("09:00");
-    setIsAllDay(false);
     onClose();
   };
 
@@ -2526,18 +2654,23 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Add Habit</h2>
-          <button onClick={handleClose}>×</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); handleClose(); }}>×</button>
         </div>
-        <div className="modal-content">
+        <form className="modal-content" onSubmit={e => e.preventDefault()}>
           <input
             className="input"
+            name="habitTitle"
+            id="habitTitle"
             placeholder="Habit title"
+            autoComplete="off"
             value={title}
             onChange={e => setTitle(e.target.value)}
           />
           <div className="category-select-wrapper">
             <select 
               className="input"
+              name="habitCategory"
+              id="habitCategory"
               value={category}
               onChange={e => {
                 if (e.target.value === "__new__") {
@@ -2556,27 +2689,18 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
             <div className="new-category-input">
               <input
                 className="input"
+                name="newCategory"
+                id="newCategory"
                 placeholder="New category name"
+                autoComplete="off"
                 value={newCategoryName}
                 onChange={e => setNewCategoryName(e.target.value)}
               />
-              <button className="button small" onClick={handleAddCategory}>Add</button>
+              <button type="button" className="button small" onClick={handleAddCategory}>Add</button>
             </div>
           )}
-          <label className="checkbox-label">
-            <input type="checkbox" checked={isAllDay} onChange={e => setIsAllDay(e.target.checked)} />
-            All Day
-          </label>
-          {!isAllDay && (
-            <input
-              type="time"
-              className="input"
-              value={time}
-              onChange={e => setTime(e.target.value)}
-            />
-          )}
-          <button className="button" onClick={handleSubmit}>Add Habit</button>
-        </div>
+          <button type="button" className="button" onClick={handleSubmit}>Add Habit</button>
+        </form>
       </div>
     </div>
   );
@@ -2904,7 +3028,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
 }
 
 // Growth Page Component
-function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype }) {
+function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, getIdentityEmoji }) {
   // Filter identities - only show when an archetype is selected, remove duplicates
   let displayIdentities = activeArchetype 
     ? identities.filter(id => id.archetype_id === activeArchetype.id)
@@ -3254,19 +3378,42 @@ function CommunityPage({ session }) {
   async function sendFriendRequest() {
     if (!friendEmail.trim() || !session?.user?.id) return;
     
-    // Find user by email in user_profiles
-    const { data: profiles } = await supabase
-      .from('user_profiles')
-      .select('id, email')
-      .ilike('email', friendEmail.trim())
-      .limit(1);
+    const searchTerm = friendEmail.trim().toLowerCase();
+    console.log("=== FRIEND REQUEST DEBUG ===");
+    console.log("Search term:", searchTerm);
+    console.log("Current user ID:", session.user.id);
     
+    // First, let's see what's in user_profiles
+    console.log("Fetching all user_profiles...");
+    const { data: allProfiles, error: allError } = await supabase
+      .from('user_profiles')
+      .select('*');
+    
+    console.log("All profiles:", JSON.stringify(allProfiles, null, 2));
+    console.log("Error:", allError);
+    
+    // Try to find user by email in user_profiles
+    console.log("Searching with ilike...");
+    let { data: profiles, error: searchError } = await supabase
+      .from('user_profiles')
+      .select('id, email, name')
+      .or(`email.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%`)
+      .limit(5);
+    
+    console.log("Search results:", profiles);
+    console.log("Search error:", searchError);
+    
+    // If no match found, show all available profiles for debugging
     if (!profiles || profiles.length === 0) {
-      alert('No user found with that email. Make sure your friend has signed up first!');
+      console.log("DEBUG: Available profiles for friend lookup:", allProfiles);
+      alert('No user found. Make sure your friend has logged in at least once. Ask them to refresh the app.');
       return;
     }
     
+    // Use the first match
     const friendId = profiles[0].id;
+    const friendEmail2 = profiles[0].email || profiles[0].name;
+    console.log("Found friend:", friendId, friendEmail2);
     
     if (friendId === session.user.id) {
       alert("You can't add yourself as a friend!");
@@ -3286,14 +3433,14 @@ function CommunityPage({ session }) {
     }
     
     // Send friend request
-    const { error } = await supabase.from('friends').insert({
+    const { error: insertError } = await supabase.from('friends').insert({
       user_id: session.user.id,
       friend_id: friendId,
       status: 'pending'
     });
     
-    if (error) {
-      console.error('Friend request error:', error);
+    if (insertError) {
+      console.error('Friend request error:', insertError);
       alert('Error sending friend request');
     } else {
       alert('Friend request sent!');
@@ -3306,11 +3453,19 @@ function CommunityPage({ session }) {
   async function acceptFriendRequest(requesterId) {
     if (!session?.user?.id) return;
     
+    // Update the pending request to accepted
     await supabase
       .from('friends')
       .update({ status: 'accepted' })
       .eq('friend_id', session.user.id)
       .eq('user_id', requesterId);
+    
+    // Create reciprocal friendship
+    await supabase.from('friends').insert({
+      user_id: session.user.id,
+      friend_id: requesterId,
+      status: 'accepted'
+    });
     
     loadFriends();
   }
@@ -3356,11 +3511,14 @@ function CommunityPage({ session }) {
             <input
               className="input"
               type="email"
+              name="friendEmail"
+              id="friendEmail"
+              autoComplete="off"
               placeholder="Enter friend's email..."
               value={friendEmail}
               onChange={(e) => setFriendEmail(e.target.value)}
             />
-            <button className="button" onClick={sendFriendRequest}>Send Request</button>
+            <button type="button" className="button" onClick={sendFriendRequest}>Send Request</button>
           </div>
           
           {friendRequests.length > 0 && (
@@ -3368,7 +3526,7 @@ function CommunityPage({ session }) {
               <h3>Friend Requests</h3>
               {friendRequests.map(req => (
                 <div key={req.id} className="friend-request-item">
-                  <span>{req.email || 'New request'}</span>
+                  <span>{req.email || req.name || 'Someone'}</span>
                   <button className="button small" onClick={() => acceptFriendRequest(req.id)}>Accept</button>
                 </div>
               ))}
@@ -3383,7 +3541,7 @@ function CommunityPage({ session }) {
               {friends.map(friend => (
                 <div key={friend.id} className="friend-item">
                   <span className="friend-avatar">{friend.emoji || '👤'}</span>
-                  <span className="friend-name">{friend.name || 'Friend'}</span>
+                  <span className="friend-name">{friend.name || friend.email || 'Friend'}</span>
                 </div>
               ))}
             </div>
