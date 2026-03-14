@@ -2373,7 +2373,7 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
-        <button className="add-btn" onClick={() => setShowAddHabit(true)}>+ Add</button>
+        <button className="add-btn" onClick={() => { console.log("Add button clicked"); setShowAddHabit(true); }}>+ Add</button>
       </div>
 
       {/* Weekly/Daily View */}
