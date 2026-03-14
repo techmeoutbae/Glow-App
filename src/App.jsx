@@ -846,28 +846,34 @@ function GlowApp({ session }) {
     }
   }
 
-  async function addHabit() {
-    if (!newTask.trim()) return;
+  async function addHabit(title, category, time, isAllDay) {
+    // Use provided values or fall back to state
+    const habitTitle = title || newTask;
+    const habitCategory = category || taskCategory;
+    const habitTime = time || taskTime;
+    const habitAllDay = isAllDay !== undefined ? isAllDay : isAllDay;
+    
+    if (!habitTitle?.trim()) return;
     
     const actualDay = taskDay === "Today" 
       ? new Date().toLocaleDateString('en-US', { weekday: 'long' })
       : taskDay;
 
     // Determine page based on category
-    const page = (taskCategory === "Work" || taskCategory === "School") ? "work" : currentPage;
+    const page = (habitCategory === "Work" || habitCategory === "School") ? "work" : currentPage;
     
     // Auto-link identities based on category
-    const categoryIdents = categoryIdentities[taskCategory] || [];
+    const categoryIdents = categoryIdentities[habitCategory] || [];
     const mergedTags = [...new Set([...identityTags, ...categoryIdents])];
 
     try {
       const { error } = await supabase.from("tasks").insert({
-        title: newTask,
-        category: taskCategory,
+        title: habitTitle,
+        category: habitCategory,
         completed: false,
         page: page,
-        time: isAllDay ? null : taskTime,
-        is_all_day: isAllDay,
+        time: habitAllDay ? null : habitTime,
+        is_all_day: habitAllDay,
         day: actualDay,
         days: [actualDay],
         identity_tags: mergedTags,
@@ -883,6 +889,7 @@ function GlowApp({ session }) {
         setTwoMinVersion("");
         setIdentityTags([]);
         setShowAddHabit(false);
+        loadData();
         loadData();
       }
     } catch (e) { console.log("Add habit error:", e); }
@@ -2494,7 +2501,15 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
 
   const handleSubmit = () => {
     if (!title.trim()) return;
+    // Pass the values to update state in parent, then close
     onAdd(title, category, time, isAllDay);
+  };
+  
+  const handleClose = () => {
+    setTitle("");
+    setCategory(categories[0]);
+    setTime("09:00");
+    setIsAllDay(false);
     onClose();
   };
 
@@ -2507,11 +2522,11 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Add Habit</h2>
-          <button onClick={onClose}>×</button>
+          <button onClick={handleClose}>×</button>
         </div>
         <div className="modal-content">
           <input
