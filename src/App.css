@@ -1971,11 +1971,22 @@ body {
 }
 
 .glow-score-display {
-  padding: 12px;
+  padding: 16px;
+  background: rgba(255, 182, 193, 0.6);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 105, 180, 0.3);
 }
 
 .glow-score-value.large {
   font-size: 2.5rem;
+  color: #ff69b4;
+  text-shadow: 0 0 15px rgba(255, 105, 180, 0.5);
+}
+
+.glow-score-value.large.light {
+  color: #ffb3d9;
+  text-shadow: 0 0 20px #ff69b4, 0 0 30px #ff69b4;
 }
 
 .streak-display {
