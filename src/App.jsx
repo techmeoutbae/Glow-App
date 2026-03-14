@@ -2536,9 +2536,17 @@ function CommunityPage({ session }) {
                 {joinedChallenges.map(join => {
                   const challenge = challenges.find(c => c.id === join.challenge_id);
                   if (!challenge) return null;
+                  const challengeEmojis = {
+                    '30-Day Glow Up': '✨🌟✨',
+                    '7-Day Glow': '✨',
+                    'Hydration Goddess': '💧',
+                    'Fitness Glow': '💪',
+                    'Mindful Mornings': '🧘',
+                    'Financial Glow': '💰'
+                  };
                   return (
                     <div key={join.id} className="my-challenge-card">
-                      <div className="challenge-icon">🎯</div>
+                      <div className="challenge-icon">{challengeEmojis[challenge.title] || '🎯'}</div>
                       <h3>{challenge.title}</h3>
                       <div className="challenge-progress">
                         <div className="progress-bar">
@@ -2565,19 +2573,18 @@ function CommunityPage({ session }) {
             <div className="challenges-grid">
               {challenges.filter(c => !joinedChallenges.some(j => j.challenge_id === c.id)).map(challenge => {
                 const isJoined = joinedChallenges.some(j => j.challenge_id === challenge.id);
-                const categoryEmojis = {
-                  'Health': '💪',
-                  'Mindset': '🧠',
-                  'Finances': '💰',
-                  'Beauty': '✨',
-                  'Career': '💼',
-                  'Relationships': '💕',
-                  'Spirituality': '🧘'
+                const challengeEmojis = {
+                  '30-Day Glow Up': '✨🌟✨',
+                  '7-Day Glow': '✨',
+                  'Hydration Goddess': '💧',
+                  'Fitness Glow': '💪',
+                  'Mindful Mornings': '🧘',
+                  'Financial Glow': '💰'
                 };
                 return (
                   <div key={challenge.id} className={`challenge-card ${isJoined ? 'joined' : ''}`}>
                     <div className="challenge-header">
-                      <span className="challenge-emoji">{categoryEmojis[challenge.category] || '🌟'}</span>
+                      <span className="challenge-emoji">{challengeEmojis[challenge.title] || '🌟'}</span>
                       <span className="challenge-category">{challenge.category}</span>
                     </div>
                     <h3>{challenge.title}</h3>
