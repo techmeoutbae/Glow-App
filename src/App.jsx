@@ -38,6 +38,9 @@ export default function App() {
       if (error) {
         setError(error.message);
       } else {
+        // Set account start date on signup
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.setItem('accountStartDate', today);
         setMessage("Check your email to verify your account!");
       }
     } else {
@@ -1470,32 +1473,97 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
     return Math.round(progress.reduce((a, b) => a + b, 0) / progress.length);
   };
 
-  // Calculate weekly average (last 7 days)
+  // Calculate weekly average - average of ALL habits for current week (Mon-Sun)
   const getWeeklyAverage = () => {
-    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
     const today = new Date();
-    let total = 0;
-    let count = 0;
+    const dayOfWeek = today.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     
+    // Get Monday of current week
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+    monday.setHours(0, 0, 0, 0);
+    
+    // Calculate average for each day of the week (Mon-Sun)
+    let totalProgress = 0;
+    let daysWithTasks = 0;
+    
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return 0;
+    
+    // Loop through each day of the week
     for (let i = 0; i < 7; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      if (history[dateStr] !== undefined) {
-        total += history[dateStr];
-        count++;
-      }
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + i);
+      
+      // Skip future days
+      if (dayDate > today) continue;
+      
+      const dayStr = dayDate.toISOString().split('T')[0];
+      const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get tasks for this day
+      const dayTasks = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+          return taskDays?.includes(dayName);
+        }
+        return true;
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      // Calculate completion for this day
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      totalProgress += (completed / dayTasks.length) * 100;
+      daysWithTasks++;
     }
     
-    return count > 0 ? Math.round(total / count) : 0;
+    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
   };
 
-  // Calculate all-time average
+  // Calculate all-time average - average of ALL days from signup to now
   const getCumulativeAverage = () => {
-    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    const values = Object.values(history);
-    if (values.length === 0) return 0;
-    return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+    const accountStartDate = localStorage.getItem('accountStartDate');
+    if (!accountStartDate) return 0;
+    
+    const startDate = new Date(accountStartDate);
+    const today = new Date();
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return 0;
+    
+    let totalProgress = 0;
+    let daysWithTasks = 0;
+    
+    // Loop through every day from signup to today
+    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+      const dayStr = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get tasks for this day
+      const dayTasks = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+          return taskDays?.includes(dayName);
+        }
+        return true;
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      // Calculate completion for this day
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      totalProgress += (completed / dayTasks.length) * 100;
+      daysWithTasks++;
+    }
+    
+    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
   };
 
   // Calculate streak - only counts if ALL daily habits are completed
@@ -1954,32 +2022,88 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
     return dailyAverage;
   };
 
-  // Calculate cumulative average from account start
+  // Calculate cumulative average - average of ALL days from signup to now
   const getCumulativeAverage = () => {
-    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    const values = Object.values(history);
-    if (values.length === 0) return 0;
-    return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-  };
-
-  // Calculate weekly average (last 7 days)
-  const getWeeklyAverage = () => {
-    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    const today = new Date();
-    let total = 0;
-    let count = 0;
+    const accountStartDate = localStorage.getItem('accountStartDate');
+    if (!accountStartDate) return 0;
     
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      if (history[dateStr] !== undefined) {
-        total += history[dateStr];
-        count++;
-      }
+    const startDate = new Date(accountStartDate);
+    const today = new Date();
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return 0;
+    
+    let totalProgress = 0;
+    let daysWithTasks = 0;
+    
+    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+      const dayStr = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      const dayTasks = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+          return taskDays?.includes(dayName);
+        }
+        return true;
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      totalProgress += (completed / dayTasks.length) * 100;
+      daysWithTasks++;
     }
     
-    return count > 0 ? Math.round(total / count) : 0;
+    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
+  };
+
+  // Calculate weekly average - average of ALL habits for current week
+  const getWeeklyAverage = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+    monday.setHours(0, 0, 0, 0);
+    
+    let totalProgress = 0;
+    let daysWithTasks = 0;
+    
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return 0;
+    
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + i);
+      
+      if (dayDate > today) continue;
+      
+      const dayStr = dayDate.toISOString().split('T')[0];
+      const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      const dayTasks = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+          return taskDays?.includes(dayName);
+        }
+        return true;
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      totalProgress += (completed / dayTasks.length) * 100;
+      daysWithTasks++;
+    }
+    
+    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
   };
 
   // Calculate monthly average (last 30 days)
