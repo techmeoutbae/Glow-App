@@ -2530,6 +2530,195 @@ body {
   font-size: 0.8rem;
 }
 
+/* Challenges Section */
+.challenges-section {
+  padding-bottom: 80px;
+}
+
+.my-challenges {
+  margin-bottom: 24px;
+}
+
+.my-challenges h2 {
+  font-size: 1.2rem;
+  margin-bottom: 12px;
+  color: var(--theme-color);
+}
+
+.my-challenges-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.my-challenge-card {
+  background: linear-gradient(135deg, #ff69b4, #ffb6c1);
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 4px 15px rgba(255, 105, 180, 0.4);
+}
+
+.my-challenge-card .challenge-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+
+.my-challenge-card h3 {
+  font-size: 0.9rem;
+  margin: 0 0 10px 0;
+  color: white;
+}
+
+.challenge-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.challenge-progress .progress-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.challenge-progress .progress-fill {
+  height: 100%;
+  background: white;
+  border-radius: 4px;
+}
+
+.challenge-progress span {
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+
+.days-left {
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+
+.challenges-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.challenge-card {
+  background: white;
+  border-radius: 20px;
+  padding: 20px;
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+.challenge-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(214, 51, 132, 0.2);
+}
+
+.challenge-card.joined {
+  border-color: var(--theme-color);
+  background: linear-gradient(135deg, #fff5f8, #fff);
+}
+
+.challenge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.challenge-emoji {
+  font-size: 2rem;
+}
+
+.challenge-category {
+  background: rgba(214, 51, 132, 0.1);
+  color: var(--theme-color);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.challenge-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 1.1rem;
+}
+
+.challenge-desc {
+  font-size: 0.85rem;
+  color: var(--theme-dark);
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+.challenge-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--theme-dark);
+}
+
+.stat.friends-joined {
+  background: rgba(255, 105, 180, 0.1);
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: var(--theme-color);
+}
+
+.challenge-duration {
+  display: flex;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: var(--theme-dark);
+  margin-bottom: 12px;
+}
+
+.join-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #ff69b4, #ff1493);
+  border: none;
+}
+
+.join-btn:hover {
+  background: linear-gradient(135deg, #ff1493, #ff69b4);
+}
+
+.joined-btn {
+  width: 100%;
+  background: var(--theme-color);
+  opacity: 0.7;
+}
+
+.glow-progress {
+  background: linear-gradient(90deg, #ff69b4, #ffb6c1);
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+  .challenges-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .my-challenges-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .community-section h2 {
   font-size: 1.1rem;
   margin-bottom: 16px;
@@ -2711,5 +2900,32 @@ body {
   .archetype-chip {
     padding: 8px 12px;
     font-size: 0.85rem;
+  }
+  
+  /* Community page mobile fixes */
+  .community-tabs {
+    gap: 6px;
+  }
+  
+  .community-tabs .tab {
+    padding: 8px 14px;
+    font-size: 0.8rem;
+  }
+  
+  .add-friend-form {
+    flex-direction: column;
+  }
+  
+  .friends-list {
+    gap: 8px;
+  }
+  
+  .friend-item {
+    padding: 10px;
+    font-size: 0.9rem;
+  }
+  
+  .leaderboard-item {
+    padding: 10px;
   }
 }

@@ -2381,14 +2381,34 @@ function CommunityPage({ session }) {
       .select('*')
       .order('created_at', { ascending: false });
     
-    setChallenges(allChallenges || []);
-    
-    if (session?.user?.id) {
+    // Get participant counts and friend participants for each challenge
+    const challengesWithParticipants = await Promise.all((allChallenges || []).map(async (challenge) => {
       const { data: participants } = await supabase
         .from('challenge_participants')
         .select('*')
+        .eq('challenge_id', challenge.id);
+      
+      const { data: friendParticipants } = await supabase
+        .from('challenge_participants')
+        .select('*')
+        .eq('challenge_id', challenge.id)
+        .in('user_id', friends.map(f => f.id));
+      
+      return {
+        ...challenge,
+        totalParticipants: participants?.length || 0,
+        friendParticipants: friendParticipants?.length || 0
+      };
+    }));
+    
+    setChallenges(challengesWithParticipants || []);
+    
+    if (session?.user?.id) {
+      const { data: userParticipants } = await supabase
+        .from('challenge_participants')
+        .select('*')
         .eq('user_id', session.user.id);
-      setJoinedChallenges(participants || []);
+      setJoinedChallenges(userParticipants || []);
     }
   }
 
@@ -2507,26 +2527,81 @@ function CommunityPage({ session }) {
       )}
 
       {activeTab === 'challenges' && (
-        <div className="community-section">
-          <h2>Active Challenges</h2>
+        <div className="challenges-section">
+          {/* My Joined Challenges */}
+          {joinedChallenges.length > 0 && (
+            <div className="my-challenges">
+              <h2>✨ My Challenges</h2>
+              <div className="my-challenges-grid">
+                {joinedChallenges.map(join => {
+                  const challenge = challenges.find(c => c.id === join.challenge_id);
+                  if (!challenge) return null;
+                  return (
+                    <div key={join.id} className="my-challenge-card">
+                      <div className="challenge-icon">🎯</div>
+                      <h3>{challenge.title}</h3>
+                      <div className="challenge-progress">
+                        <div className="progress-bar">
+                          <div 
+                            className="progress-fill glow-progress" 
+                            style={{ width: `${join.progress || 0}%` }}
+                          />
+                        </div>
+                        <span>{join.progress || 0}%</span>
+                      </div>
+                      <span className="days-left">{challenge.duration_days - Math.floor((Date.now() - new Date(join.joined_at).getTime()) / (1000 * 60 * 60 * 24))} days left</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
+          {/* All Challenges */}
+          <h2>🔥 Active Challenges</h2>
           {challenges.length === 0 ? (
             <p className="empty-message">No challenges yet. Check back soon!</p>
           ) : (
-            <div className="challenges-list">
+            <div className="challenges-grid">
               {challenges.map(challenge => {
                 const isJoined = joinedChallenges.some(j => j.challenge_id === challenge.id);
+                const categoryEmojis = {
+                  'Health': '💪',
+                  'Mindset': '🧠',
+                  'Finances': '💰',
+                  'Beauty': '✨',
+                  'Career': '💼',
+                  'Relationships': '💕',
+                  'Spirituality': '🧘'
+                };
                 return (
-                  <div key={challenge.id} className="challenge-item">
+                  <div key={challenge.id} className={`challenge-card ${isJoined ? 'joined' : ''}`}>
+                    <div className="challenge-header">
+                      <span className="challenge-emoji">{categoryEmojis[challenge.category] || '🌟'}</span>
+                      <span className="challenge-category">{challenge.category}</span>
+                    </div>
                     <h3>{challenge.title}</h3>
-                    <p>{challenge.description}</p>
-                    <div className="challenge-meta">
+                    <p className="challenge-desc">{challenge.description}</p>
+                    <div className="challenge-stats">
+                      <div className="stat">
+                        <span className="stat-icon">👥</span>
+                        <span className="stat-value">{challenge.totalParticipants || 0}</span>
+                      </div>
+                      {challenge.friendParticipants > 0 && (
+                        <div className="stat friends-joined">
+                          <span className="stat-icon">👯</span>
+                          <span className="stat-value">{challenge.friendParticipants} friends</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="challenge-duration">
                       <span>📅 {challenge.duration_days} days</span>
                       <span>🎯 {challenge.goal}</span>
                     </div>
                     {isJoined ? (
-                      <span className="joined-badge">✓ Joined</span>
+                      <button className="button joined-btn" disabled>✓ Joined</button>
                     ) : (
-                      <button className="button small" onClick={() => joinChallenge(challenge.id)}>
+                      <button className="button join-btn" onClick={() => joinChallenge(challenge.id)}>
                         Join Challenge
                       </button>
                     )}
