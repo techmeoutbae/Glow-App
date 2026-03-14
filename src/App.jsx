@@ -1415,7 +1415,7 @@ function GlowApp({ session }) {
       )}
 
       {currentPage === "community" && (
-        <CommunityPage />
+        <CommunityPage session={session} />
       )}
         </>
       )}
@@ -2320,25 +2320,243 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList }) {
 }
 
 // Community Page Component
-function CommunityPage() {
+function CommunityPage({ session }) {
+  const [activeTab, setActiveTab] = useState('friends');
+  const [friends, setFriends] = useState([]);
+  const [friendEmail, setFriendEmail] = useState('');
+  const [friendRequests, setFriendRequests] = useState([]);
+  const [challenges, setChallenges] = useState([]);
+  const [joinedChallenges, setJoinedChallenges] = useState([]);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [showJoinChallenge, setShowJoinChallenge] = useState(null);
+
+  useEffect(() => {
+    loadFriends();
+    loadChallenges();
+    loadLeaderboard();
+  }, []);
+
+  async function loadFriends() {
+    if (!session?.user?.id) return;
+    
+    // Load friends (accepted)
+    const { data: friendsData } = await supabase
+      .from('friends')
+      .select('*')
+      .or(`user_id.eq.${session.user.id},friend_id.eq.${session.user.id}`)
+      .eq('status', 'accepted');
+    
+    // Get friend details
+    if (friendsData?.length) {
+      const friendIds = friendsData.map(f => 
+        f.user_id === session.user.id ? f.friend_id : f.user_id
+      );
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .in('id', friendIds);
+      setFriends(profiles || []);
+    }
+    
+    // Load pending requests
+    const { data: requests } = await supabase
+      .from('friends')
+      .select('*')
+      .eq('friend_id', session.user.id)
+      .eq('status', 'pending');
+    
+    if (requests?.length) {
+      const requesterIds = requests.map(r => r.user_id);
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .in('id', requesterIds);
+      setFriendRequests(profiles || []);
+    }
+  }
+
+  async function loadChallenges() {
+    const { data: allChallenges } = await supabase
+      .from('challenges')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    setChallenges(allChallenges || []);
+    
+    if (session?.user?.id) {
+      const { data: participants } = await supabase
+        .from('challenge_participants')
+        .select('*')
+        .eq('user_id', session.user.id);
+      setJoinedChallenges(participants || []);
+    }
+  }
+
+  async function loadLeaderboard() {
+    const { data: streaks } = await supabase
+      .from('community_streaks')
+      .select('*')
+      .order('streak_count', { ascending: false })
+      .limit(10);
+    
+    if (streaks?.length) {
+      const userIds = streaks.map(s => s.user_id);
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .in('id', userIds);
+      
+      const merged = streaks.map(s => ({
+        ...s,
+        profile: profiles?.find(p => p.id === s.user_id)
+      }));
+      setLeaderboard(merged);
+    }
+  }
+
+  async function sendFriendRequest() {
+    if (!friendEmail.trim() || !session?.user?.id) return;
+    
+    // Find user by email (would need user_profiles table)
+    alert('Friend request sent! (Requires email lookup setup)');
+    setFriendEmail('');
+  }
+
+  async function acceptFriendRequest(requesterId) {
+    if (!session?.user?.id) return;
+    
+    await supabase
+      .from('friends')
+      .update({ status: 'accepted' })
+      .eq('friend_id', session.user.id)
+      .eq('user_id', requesterId);
+    
+    loadFriends();
+  }
+
+  async function joinChallenge(challengeId) {
+    if (!session?.user?.id) return;
+    
+    await supabase.from('challenge_participants').insert({
+      challenge_id: challengeId,
+      user_id: session.user.id
+    });
+    
+    loadChallenges();
+  }
+
   return (
     <div className="community-page">
       <h1 className="title">Glow Community ✧</h1>
       
-      <div className="community-section">
-        <h2>Accountability Partners</h2>
-        <p className="empty-message">Add friends to be accountability partners</p>
+      <div className="community-tabs">
+        <span 
+          className={`tab ${activeTab === 'friends' ? 'active' : ''}`}
+          onClick={() => setActiveTab('friends')}
+        >Friends</span>
+        <span 
+          className={`tab ${activeTab === 'challenges' ? 'active' : ''}`}
+          onClick={() => setActiveTab('challenges')}
+        >Challenges</span>
+        <span 
+          className={`tab ${activeTab === 'leaderboard' ? 'active' : ''}`}
+          onClick={() => setActiveTab('leaderboard')}
+        >Leaderboard</span>
       </div>
 
-      <div className="community-section">
-        <h2>Challenges</h2>
-        <p className="empty-message">Join challenges with your community</p>
-      </div>
+      {activeTab === 'friends' && (
+        <div className="community-section">
+          <h2>Add Friend</h2>
+          <div className="add-friend-form">
+            <input
+              className="input"
+              type="email"
+              placeholder="Enter friend's email..."
+              value={friendEmail}
+              onChange={(e) => setFriendEmail(e.target.value)}
+            />
+            <button className="button" onClick={sendFriendRequest}>Send Request</button>
+          </div>
+          
+          {friendRequests.length > 0 && (
+            <div className="friend-requests">
+              <h3>Friend Requests</h3>
+              {friendRequests.map(req => (
+                <div key={req.id} className="friend-request-item">
+                  <span>{req.email || 'New request'}</span>
+                  <button className="button small" onClick={() => acceptFriendRequest(req.id)}>Accept</button>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          <h2>Your Friends</h2>
+          {friends.length === 0 ? (
+            <p className="empty-message">No friends yet. Add someone to get started!</p>
+          ) : (
+            <div className="friends-list">
+              {friends.map(friend => (
+                <div key={friend.id} className="friend-item">
+                  <span className="friend-avatar">{friend.emoji || '👤'}</span>
+                  <span className="friend-name">{friend.name || 'Friend'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-      <div className="community-section">
-        <h2>Streak Competitions</h2>
-        <p className="empty-message">Compete with friends on streaks</p>
-      </div>
+      {activeTab === 'challenges' && (
+        <div className="community-section">
+          <h2>Active Challenges</h2>
+          {challenges.length === 0 ? (
+            <p className="empty-message">No challenges yet. Check back soon!</p>
+          ) : (
+            <div className="challenges-list">
+              {challenges.map(challenge => {
+                const isJoined = joinedChallenges.some(j => j.challenge_id === challenge.id);
+                return (
+                  <div key={challenge.id} className="challenge-item">
+                    <h3>{challenge.title}</h3>
+                    <p>{challenge.description}</p>
+                    <div className="challenge-meta">
+                      <span>📅 {challenge.duration_days} days</span>
+                      <span>🎯 {challenge.goal}</span>
+                    </div>
+                    {isJoined ? (
+                      <span className="joined-badge">✓ Joined</span>
+                    ) : (
+                      <button className="button small" onClick={() => joinChallenge(challenge.id)}>
+                        Join Challenge
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'leaderboard' && (
+        <div className="community-section">
+          <h2>Top Streaks</h2>
+          {leaderboard.length === 0 ? (
+            <p className="empty-message">No streaks yet. Complete your habits to get on the board!</p>
+          ) : (
+            <div className="leaderboard">
+              {leaderboard.map((entry, index) => (
+                <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
+                  <span className="rank">#{index + 1}</span>
+                  <span className="avatar">{entry.profile?.emoji || '👤'}</span>
+                  <span className="name">{entry.profile?.name || 'Glow User'}</span>
+                  <span className="streak">🔥 {entry.streak_count} days</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

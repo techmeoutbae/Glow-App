@@ -2390,13 +2390,142 @@ body {
   padding-bottom: 80px;
 }
 
-.community-section {
-  background: rgba(255, 255, 255, 0.9);
+.community-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.community-tabs .tab {
+  padding: 10px 20px;
+  background: var(--theme-card);
   border-radius: 20px;
-  padding: 20px;
-  margin-bottom: 16px;
-  box-shadow: 0 4px 15px rgba(214, 51, 132, 0.1);
-  border: 1px solid rgba(214, 51, 132, 0.1);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  border: 1px solid var(--theme-border);
+}
+
+.community-tabs .tab.active {
+  background: var(--theme-color);
+  color: white;
+  border-color: var(--theme-color);
+}
+
+.add-friend-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.add-friend-form .input {
+  flex: 1;
+}
+
+.friends-list, .challenges-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.friend-item, .challenge-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--theme-card);
+  border-radius: 12px;
+}
+
+.friend-avatar, .avatar {
+  font-size: 1.5rem;
+}
+
+.friend-name, .name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.challenge-item {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.challenge-item h3 {
+  margin: 0 0 4px 0;
+}
+
+.challenge-item p {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: var(--theme-dark);
+}
+
+.challenge-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: var(--theme-dark);
+}
+
+.joined-badge {
+  color: var(--theme-color);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.friend-request-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: rgba(255, 182, 193, 0.3);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.leaderboard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--theme-card);
+  border-radius: 12px;
+}
+
+.leaderboard-item.rank-1 {
+  background: linear-gradient(90deg, #ffd700, #ffec8b);
+}
+
+.leaderboard-item.rank-2 {
+  background: linear-gradient(90deg, #c0c0c0, #e8e8e8);
+}
+
+.leaderboard-item.rank-3 {
+  background: linear-gradient(90deg, #cd7f32, #deb887);
+}
+
+.rank {
+  font-weight: bold;
+  font-size: 1.1rem;
+  min-width: 30px;
+}
+
+.streak {
+  font-weight: 600;
+  color: #ff6b6b;
+}
+
+.button.small {
+  padding: 6px 12px;
+  font-size: 0.8rem;
 }
 
 .community-section h2 {
