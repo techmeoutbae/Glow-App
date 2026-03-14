@@ -173,39 +173,115 @@ function OnboardingChoose({ archetypes, onSelect, onBack }) {
   );
 }
 
-function TemplateEditor({ archetype, habits, onUpdate, onAdd, onRemove, onSave, onBack, isSaving }) {
+function TemplateEditor({ archetype, habits, onUpdate, onAdd, onRemove, onSave, onBack, isSaving, identities = [], onAddIdentity, onRemoveIdentity, onCreateIdentity }) {
+  const [newIdentityName, setNewIdentityName] = useState("");
+  const [showAddIdentity, setShowAddIdentity] = useState(false);
+  
   return (
     <div className="onboarding-screen">
       <div className="onboarding-content wide">
         <button className="back-btn" onClick={onBack}>← Back</button>
         <span className="onboarding-emoji">{archetype.emoji}</span>
         <h1 className="onboarding-title">Customize Your {archetype.name} Template</h1>
-        <p className="onboarding-subtitle">Edit the habits or add your own. Tap to modify.</p>
+        <p className="onboarding-subtitle">Edit the habits and identities below. Tap to modify.</p>
         
-        <div className="template-habits-editor">
-          {habits.map((habit, idx) => (
-            <div key={idx} className="template-habit-row">
-              <input
-                className="input"
-                placeholder="Habit title"
-                name={`habitTitle-${idx}`}
-                value={habit.title}
-                onChange={(e) => onUpdate(idx, 'title', e.target.value)}
-              />
-              <input
-                className="input two-min"
-                placeholder="2-min version"
-                name={`habitTwoMin-${idx}`}
-                value={habit.twoMin || ''}
-                onChange={(e) => onUpdate(idx, 'twoMin', e.target.value)}
-              />
-              <button className="remove-btn" onClick={() => onRemove(idx)}>×</button>
-            </div>
-          ))}
+        {/* Identities Section */}
+        <div className="template-section">
+          <h3>Identities</h3>
+          <p className="section-hint">These identities will be reinforced by your habits</p>
+          <div className="template-identities">
+            {identities.map((identity, idx) => (
+              <div key={idx} className="template-identity-tag">
+                <span>{identity.emoji || '✨'} {identity.name}</span>
+                <button className="remove-btn" onClick={() => onRemoveIdentity(idx)}>×</button>
+              </div>
+            ))}
+          </div>
           
-          <button className="button secondary add-habit-btn" onClick={onAdd}>
-            + Add Habit
-          </button>
+          <div className="add-identity-row">
+            <button 
+              className="button secondary small" 
+              onClick={() => setShowAddIdentity(!showAddIdentity)}
+            >
+              + Add Existing Identity
+            </button>
+            <button 
+              className="button secondary small" 
+              onClick={() => onCreateIdentity && onCreateIdentity()}
+            >
+              + Create New Identity
+            </button>
+          </div>
+          
+          {showAddIdentity && (
+            <div className="add-identity-form">
+              <select 
+                className="input"
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onAddIdentity(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+              >
+                <option value="">Select an identity...</option>
+                <option value="HEALTHY">HEALTHY 💪</option>
+                <option value="FIT">FIT 🏃</option>
+                <option value="STRONG">STRONG 💪</option>
+                <option value="ENERGETIC">ENERGETIC ⚡</option>
+                <option value="NOURISHED">NOURISHED 🥗</option>
+                <option value="GROWTH">GROWTH 🌱</option>
+                <option value="MINDFUL">MINDFUL 🧠</option>
+                <option value="FOCUSED">FOCUSED 🎯</option>
+                <option value="DISCIPLINED">DISCIPLINED 📏</option>
+                <option value="GRATEFUL">GRATEFUL 🙏</option>
+                <option value="WEALTHY">WEALTHY 💎</option>
+                <option value="FINANCIALLY WISE">FINANCIALLY WISE 💰</option>
+                <option value="ABUNDANT">ABUNDANT 🌟</option>
+                <option value="RADIANT">RADIANT ✨</option>
+                <option value="BEAUTIFUL">BEAUTIFUL 🌸</option>
+                <option value="SUCCESSFUL">SUCCESSFUL 🏆</option>
+                <option value="ACHIEVER">ACHIEVER 🎯</option>
+                <option value="DRIVEN">DRIVEN 🚀</option>
+                <option value="LOVING">LOVING ❤️</option>
+                <option value="CONNECTED">CONNECTED 🤝</option>
+                <option value="SPIRITUAL">SPIRITUAL 🧘‍♀️</option>
+                <option value="PEACEFUL">PEACEFUL ☮️</option>
+                <option value="BALANCED">BALANCED ⚖️</option>
+                <option value="CONFIDENT">CONFIDENT 💫</option>
+              </select>
+            </div>
+          )}
+        </div>
+        
+        {/* Habits Section */}
+        <div className="template-section">
+          <h3>Habits</h3>
+          <div className="template-habits-editor">
+            {habits.map((habit, idx) => (
+              <div key={idx} className="template-habit-row">
+                <input
+                  className="input"
+                  placeholder="Habit title"
+                  name={`habitTitle-${idx}`}
+                  value={habit.title}
+                  onChange={(e) => onUpdate(idx, 'title', e.target.value)}
+                />
+                <input
+                  className="input two-min"
+                  placeholder="2-min version"
+                  name={`habitTwoMin-${idx}`}
+                  value={habit.twoMin || ''}
+                  onChange={(e) => onUpdate(idx, 'twoMin', e.target.value)}
+                />
+                <button className="remove-btn" onClick={() => onRemove(idx)}>×</button>
+              </div>
+            ))}
+            
+            <button className="button secondary add-habit-btn" onClick={onAdd}>
+              + Add Habit
+            </button>
+          </div>
         </div>
 
         <div className="onboarding-buttons">
@@ -282,6 +358,7 @@ function GlowApp({ session }) {
   // Onboarding state
   const [onboardingStep, setOnboardingStep] = useState(null);
   const [templateHabits, setTemplateHabits] = useState([]);
+  const [templateIdentities, setTemplateIdentities] = useState([]);
   
   // Check for first-time users and show onboarding
   useEffect(() => {
@@ -662,7 +739,13 @@ function GlowApp({ session }) {
     const createdIdentities = [];
     if (!userId) return;
     
-    for (const identityName of selectedArchetype.default_identities) {
+    // Combine default identities with template identities
+    const allIdentityNames = [
+      ...(selectedArchetype.default_identities || []),
+      ...templateIdentities.map(i => i.name)
+    ];
+    
+    for (const identityName of allIdentityNames) {
       // Check if identity already exists for this user AND archetype
       const { data: existing } = await supabase
         .from("identities")
@@ -737,6 +820,30 @@ function GlowApp({ session }) {
 
   function removeTemplateHabit(index) {
     setTemplateHabits(templateHabits.filter((_, i) => i !== index));
+  }
+  
+  function addTemplateIdentity(identityName) {
+    const emojiMap = {
+      'HEALTHY': '💪', 'FIT': '🏃', 'STRONG': '💪', 'ENERGETIC': '⚡',
+      'NOURISHED': '🥗', 'GROWTH': '🌱', 'MINDFUL': '🧠', 'FOCUSED': '🎯',
+      'DISCIPLINED': '📏', 'GRATEFUL': '🙏', 'WEALTHY': '💎', 'FINANCIALLY WISE': '💰',
+      'ABUNDANT': '🌟', 'RADIANT': '✨', 'BEAUTIFUL': '🌸', 'SUCCESSFUL': '🏆',
+      'ACHIEVER': '🎯', 'DRIVEN': '🚀', 'LOVING': '❤️', 'CONNECTED': '🤝',
+      'SPIRITUAL': '🧘‍♀️', 'PEACEFUL': '☮️', 'BALANCED': '⚖️', 'CONFIDENT': '💫',
+    };
+    const newIdentity = { name: identityName, emoji: emojiMap[identityName] || '✨' };
+    setTemplateIdentities([...templateIdentities, newIdentity]);
+  }
+  
+  function removeTemplateIdentity(index) {
+    setTemplateIdentities(templateIdentities.filter((_, i) => i !== index));
+  }
+  
+  function createNewIdentity() {
+    const name = prompt("Enter new identity name:");
+    if (name) {
+      addTemplateIdentity(name.toUpperCase());
+    }
   }
 
   async function addHabit() {
@@ -1126,20 +1233,41 @@ function GlowApp({ session }) {
   async function addUserArchetype() {
     const userId = session?.user?.id;
     if (!userId) return;
+    if (!newIdentityName.trim()) {
+      alert("Please enter an archetype name");
+      return;
+    }
     
-    const { error } = await supabase.from("archetypes").insert({
+    const { data, error } = await supabase.from("archetypes").insert({
       name: newIdentityName,
       emoji: newIdentityEmoji,
       description: "Custom archetype created by user",
       default_identities: [newIdentityName],
       template_habits: [],
-      user_id: userId, // Only visible to this user
-    });
-    logError("archetypes.insert (addUserArchetype)", { error });
+      user_id: userId,
+    }).select().single();
     
-    if (!error) {
-      loadData();
+    if (error) {
+      console.error("Archetype error:", error);
+      alert("Error creating archetype: " + error.message);
+      return;
     }
+    
+    // Clear the form
+    setNewIdentityName("");
+    setNewIdentityEmoji("✨");
+    
+    // Set as active archetype and go to template editor
+    if (data) {
+      setSelectedArchetype(data);
+      setActiveArchetype(data);
+      localStorage.setItem('activeArchetype', JSON.stringify(data));
+      setOnboardingStep('template');
+      setTemplateHabits([]);
+      setTemplateIdentities([]);
+    }
+    
+    loadData();
   }
   
   async function deleteUserArchetype(archetype) {
@@ -1334,6 +1462,10 @@ function GlowApp({ session }) {
           onSave={saveTemplateAndFinish}
           onBack={() => setOnboardingStep('choose')}
           isSaving={isAdopting}
+          identities={templateIdentities}
+          onAddIdentity={addTemplateIdentity}
+          onRemoveIdentity={removeTemplateIdentity}
+          onCreateIdentity={createNewIdentity}
         />
       )}
 

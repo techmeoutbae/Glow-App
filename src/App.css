@@ -1595,6 +1595,69 @@ body {
 }
 
 /* Template Editor */
+.template-section {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.template-section h3 {
+  font-size: 1rem;
+  margin-bottom: 8px;
+  color: var(--theme-text);
+}
+
+.template-section .section-hint {
+  font-size: 0.8rem;
+  color: var(--theme-dark);
+  margin-bottom: 12px;
+}
+
+.template-identities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.template-identity-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--theme-light);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+}
+
+.template-identity-tag .remove-btn {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.template-identity-tag .remove-btn:hover {
+  color: #ff1493;
+}
+
+.add-identity-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.add-identity-form {
+  margin-top: 10px;
+}
+
+.add-identity-form .input {
+  width: 100%;
+}
+
 .template-habits-editor {
   background: white;
   border-radius: 16px;
@@ -3391,11 +3454,15 @@ body {
   /* Community page mobile fixes */
   .community-tabs {
     gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
   }
   
   .community-tabs .tab {
-    padding: 8px 14px;
-    font-size: 0.8rem;
+    padding: 8px 10px;
+    font-size: 0.7rem;
+    min-width: auto;
+    flex: 0 0 auto;
   }
   
   .add-friend-form {
@@ -3409,9 +3476,27 @@ body {
   .friend-item {
     padding: 10px;
     font-size: 0.9rem;
+    flex-direction: column;
+    text-align: center;
+    gap: 6px;
   }
   
   .leaderboard-item {
     padding: 10px;
+    flex-direction: column;
+    text-align: center;
+    gap: 4px;
+  }
+  
+  .leaderboard-item .rank {
+    font-size: 1rem;
+  }
+  
+  .leaderboard-item .user-info {
+    font-size: 0.85rem;
+  }
+  
+  .leaderboard-item .user-score {
+    font-size: 0.9rem;
   }
 }
