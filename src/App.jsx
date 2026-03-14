@@ -2373,7 +2373,7 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
-        <button className="add-btn" onClick={() => { console.log("Add button clicked"); setShowAddHabit(true); }}>+ Add</button>
+        <button className="add-btn" onClick={() => setShowAddHabit(true)}>+ Add Habit</button>
       </div>
 
       {/* Weekly/Daily View */}
@@ -3239,8 +3239,52 @@ function CommunityPage({ session }) {
   async function sendFriendRequest() {
     if (!friendEmail.trim() || !session?.user?.id) return;
     
-    // Find user by email (would need user_profiles table)
-    alert('Friend request sent! (Requires email lookup setup)');
+    // Find user by email in user_profiles
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, email')
+      .ilike('email', friendEmail.trim())
+      .limit(1);
+    
+    if (!profiles || profiles.length === 0) {
+      alert('No user found with that email. Make sure your friend has signed up first!');
+      return;
+    }
+    
+    const friendId = profiles[0].id;
+    
+    if (friendId === session.user.id) {
+      alert("You can't add yourself as a friend!");
+      return;
+    }
+    
+    // Check if already friends or request pending
+    const { data: existing } = await supabase
+      .from('friends')
+      .select('*')
+      .or(`and(user_id.eq.${session.user.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${session.user.id})`)
+      .maybeSingle();
+    
+    if (existing) {
+      alert('Already friends or request pending!');
+      return;
+    }
+    
+    // Send friend request
+    const { error } = await supabase.from('friends').insert({
+      user_id: session.user.id,
+      friend_id: friendId,
+      status: 'pending'
+    });
+    
+    if (error) {
+      console.error('Friend request error:', error);
+      alert('Error sending friend request');
+    } else {
+      alert('Friend request sent!');
+      loadFriends();
+    }
+    
     setFriendEmail('');
   }
 
