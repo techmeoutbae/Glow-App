@@ -404,8 +404,15 @@ function GlowApp({ session }) {
     { id: 'DISCIPLINED', name: 'Disciplined', emoji: '🎯' },
     { id: 'BALANCED', name: 'Balanced', emoji: '⚖️' },
     { id: 'NOURISHED', name: 'Nourished', emoji: '🥗' },
-    { id: 'GROUNDED', name: 'Grounded', emoji: '🧘' },
+    { id: 'GROUNDED', name: 'Grounded', emoji: '🌿' },
     { id: 'RADIANT', name: 'Radiant', emoji: '✨' },
+    { id: 'FOCUSED', name: 'Focused', emoji: '🎯' },
+    { id: 'MINDFUL', name: 'Mindful', emoji: '🧘‍♀️' },
+    { id: 'ENERGIZED', name: 'Energized', emoji: '⚡' },
+    { id: 'CONFIDENT', name: 'Confident', emoji: '💫' },
+    { id: 'BEAUTIFUL', name: 'Beautiful', emoji: '🌸' },
+    { id: 'WEALTHY', name: 'Wealthy', emoji: '💎' },
+    { id: 'HEALTHY', name: 'Healthy', emoji: '💪' },
   ];
 
   useEffect(() => {
@@ -440,6 +447,24 @@ function GlowApp({ session }) {
       console.error("Tasks load error:", e); 
     }
 
+    // Load user scores from Supabase if logged in
+    if (userId) {
+      try {
+        const { data: userScore } = await supabase
+          .from("user_scores")
+          .select("*")
+          .eq("user_id", userId)
+          .single();
+        
+        if (userScore) {
+          // Restore localStorage from saved scores
+          if (userScore.identity_scores) {
+            // Identity scores are stored per-habit completion
+          }
+        }
+      } catch (e) { /* ignore if no scores yet */ }
+    }
+    
     try {
       const result = await supabase.from("daylogs").select("*").limit(10);
       logError("DayLogs.select", result);
@@ -653,6 +678,29 @@ function GlowApp({ session }) {
     } catch (e) { console.log("Add habit error:", e); }
   }
 
+  // Save scores to Supabase
+  async function saveScoresToSupabase() {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    
+    const weekly = getWeeklyAverage();
+    const overall = getCumulativeAverage();
+    const streak = getStreak();
+    
+    try {
+      // Upsert user scores
+      await supabase.from("user_scores").upsert({
+        user_id: userId,
+        weekly_glow: weekly,
+        overall_glow: overall,
+        current_streak: streak,
+        last_updated: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+    } catch (e) {
+      console.error("Error saving scores:", e);
+    }
+  }
+
   async function toggleTask(id, completed, task = null, date = null) {
     try {
       const today = date || new Date().toISOString().split('T')[0];
@@ -669,6 +717,9 @@ function GlowApp({ session }) {
       
       // Save daily average after toggling
       saveDailyAverage();
+      
+      // Save scores to Supabase
+      saveScoresToSupabase();
       
       // Force re-render to update scores from localStorage
       setRefreshKey(k => k + 1);
