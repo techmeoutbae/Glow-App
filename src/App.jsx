@@ -250,6 +250,7 @@ function GlowApp({ session }) {
   
   // Main navigation: home, habits, insights, growth, community
   const [currentPage, setCurrentPage] = useState("home");
+  const [showFloatingGlow, setShowFloatingGlow] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [showAddIdentity, setShowAddIdentity] = useState(false);
@@ -1291,6 +1292,17 @@ function GlowApp({ session }) {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Floating Glow Score */}
+      {showFloatingGlow && (
+        <div className="floating-glow" onClick={() => setShowFloatingGlow(false)}>
+          <div className="floating-glow-content" onClick={e => e.stopPropagation()}>
+            <span className="floating-glow-score">{overallAvg}%</span>
+            <span className="floating-glow-label">Glow</span>
+            <button className="floating-glow-minimize">−</button>
           </div>
         </div>
       )}
