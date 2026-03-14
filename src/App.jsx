@@ -2557,13 +2557,13 @@ function CommunityPage({ session }) {
             </div>
           )}
           
-          {/* All Challenges */}
+          {/* All Challenges - hide already joined */}
           <h2>🔥 Active Challenges</h2>
-          {challenges.length === 0 ? (
-            <p className="empty-message">No challenges yet. Check back soon!</p>
+          {challenges.filter(c => !joinedChallenges.some(j => j.challenge_id === c.id)).length === 0 ? (
+            <p className="empty-message">You've joined all challenges! Check back for new ones.</p>
           ) : (
             <div className="challenges-grid">
-              {challenges.map(challenge => {
+              {challenges.filter(c => !joinedChallenges.some(j => j.challenge_id === c.id)).map(challenge => {
                 const isJoined = joinedChallenges.some(j => j.challenge_id === challenge.id);
                 const categoryEmojis = {
                   'Health': '💪',
