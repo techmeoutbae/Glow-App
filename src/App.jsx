@@ -2036,6 +2036,70 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
     return Math.round(progress.reduce((a, b) => a + b, 0) / progress.length);
   };
 
+  // Get time period for category view
+  const [categoryTimePeriod, setCategoryTimePeriod] = useState('today');
+
+  // Get category progress based on time period
+  const getCategoryProgressByPeriod = (category, period) => {
+    const today = new Date();
+    const todayISO = today.toISOString().split('T')[0];
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    
+    const categoryTasks = tasks.filter(t => t.category === category);
+    if (categoryTasks.length === 0) return 0;
+    
+    if (period === 'today') {
+      const completed = categoryTasks.filter(t => 
+        localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+      ).length;
+      return Math.round((completed / categoryTasks.length) * 100);
+    }
+    
+    // For week/month/all - average of stored daily category averages
+    let total = 0;
+    let count = 0;
+    const days = period === 'week' ? 7 : period === 'month' ? 30 : 365;
+    
+    for (let i = 0; i < days; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const categoryKey = `category_${category}_${dateStr}`;
+      if (history[categoryKey] !== undefined) {
+        total += history[categoryKey];
+        count++;
+      }
+    }
+    
+    return count > 0 ? Math.round(total / count) : 0;
+  };
+
+  // Save daily average and category averages when toggling
+  useEffect(() => {
+    const saveCategoryAverages = () => {
+      const todayISO = new Date().toISOString().split('T')[0];
+      const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+      if (usedCategories.length === 0) return;
+      
+      const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+      
+      for (const category of usedCategories) {
+        const categoryTasks = tasks.filter(t => t.category === category);
+        if (categoryTasks.length > 0) {
+          const completed = categoryTasks.filter(t => 
+            localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+          ).length;
+          const categoryAvg = Math.round((completed / categoryTasks.length) * 100);
+          history[`category_${category}_${todayISO}`] = categoryAvg;
+        }
+      }
+      
+      localStorage.setItem('progressHistory', JSON.stringify(history));
+    };
+    
+    saveCategoryAverages();
+  }, [tasks, refreshKey]);
+
   const cumulativeAvg = getCumulativeAverage();
   const weeklyAvg = getWeeklyAverage();
   const monthlyAvg = getMonthlyAverage();
@@ -2074,21 +2138,42 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
       </div>
 
       <div className="insights-section">
+        <div className="category-time-selector">
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'today' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('today')}
+          >Today</span>
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'week' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('week')}
+          >Week</span>
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'month' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('month')}
+          >Month</span>
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'all' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('all')}
+          >All Time</span>
+        </div>
         <h2>Category Progress</h2>
-        {categoriesList.map(cat => (
+        {categoriesList.map(cat => {
+          const progress = getCategoryProgressByPeriod(cat, categoryTimePeriod);
+          return (
           <div key={cat} className="category-progress">
             <div className="category-header">
               <span>{cat}</span>
-              <span>{getCategoryProgress(cat)}%</span>
+              <span>{progress}%</span>
             </div>
             <div className="progress-bar">
               <div 
                 className="progress-fill" 
-                style={{ width: `${getCategoryProgress(cat)}%` }}
+                style={{ width: `${progress}%` }}
               />
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
