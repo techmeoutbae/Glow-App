@@ -325,11 +325,13 @@ function GlowApp({ session }) {
   // Midnight reset for daily habits
   useEffect(() => {
     const checkMidnight = () => {
-      const today = new Date().toDateString();
+      const now = new Date();
+      const today = now.toDateString();
       const lastReset = localStorage.getItem('lastResetDate');
+      const currentHour = now.getHours();
       
-      if (lastReset !== today) {
-        // It's a new day - reset all daily habits
+      // Only reset between 12am and 1am to prevent accidental resets
+      if (currentHour >= 0 && currentHour < 1 && lastReset !== today) {
         const resetDailyHabits = async () => {
           const { data: tasks } = await supabase.from("tasks").select("id, is_all_day");
           if (tasks) {
