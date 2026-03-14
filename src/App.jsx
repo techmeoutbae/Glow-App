@@ -105,19 +105,31 @@ function OnboardingWelcome({ onNext, onSkip }) {
           <div className="onboarding-card">
             <span className="card-icon">🎯</span>
             <h3>Choose Your Archetype</h3>
-            <p>Select an archetype that represents who you want to become - like "Disciplined Creator" or "Healthy Woman"</p>
+            <p>Select an archetype that represents who you want to become</p>
           </div>
           
           <div className="onboarding-card">
             <span className="card-icon">💎</span>
             <h3>Build Your Identity</h3>
-            <p>Each habit you complete reinforces the identity you're building. Small actions lead to big transformations.</p>
+            <p>Each habit you complete reinforces the identity you're building</p>
           </div>
           
           <div className="onboarding-card">
-            <span className="card-icon">⭐</span>
-            <h3>Glow Score</h3>
-            <p>Earn points for every habit completed. Your glow score reflects your commitment to becoming your best self.</p>
+            <span className="card-icon">✨</span>
+            <h3>Earn Glow Points</h3>
+            <p>+3 per habit, +1 per todo, +25 bonus at 100% completion!</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">📝</span>
+            <h3>Daily To-Do List</h3>
+            <p>Add quick tasks that reset at midnight and count toward your glow</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">👥</span>
+            <h3>Stay Accountable</h3>
+            <p>Connect with friends to share progress and motivate each other</p>
           </div>
         </div>
 
@@ -250,7 +262,6 @@ function GlowApp({ session }) {
   
   // Main navigation: home, habits, insights, growth, community
   const [currentPage, setCurrentPage] = useState("home");
-  const [showFloatingGlow, setShowFloatingGlow] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [showAddIdentity, setShowAddIdentity] = useState(false);
@@ -262,6 +273,7 @@ function GlowApp({ session }) {
   const [frictionReason, setFrictionReason] = useState("");
   const [isAdopting, setIsAdopting] = useState(false);
   const [showGlowAnimation, setShowGlowAnimation] = useState(false);
+  const [minimizeGlow, setMinimizeGlow] = useState(false);
   
   // Edit habit state
   const [showEditHabit, setShowEditHabit] = useState(false);
@@ -302,6 +314,7 @@ function GlowApp({ session }) {
   const [refreshKey, setRefreshKey] = useState(0);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
   
   // Categories
   const defaultCategories = ["Health", "Mindset", "Finances", "Beauty", "Career", "Relationships", "Spirituality"];
@@ -310,6 +323,21 @@ function GlowApp({ session }) {
     return saved ? JSON.parse(saved) : [];
   });
   const categoriesList = [...defaultCategories, ...customCategories];
+  
+  // Category to Identity mapping
+  const defaultCategoryIdentities = {
+    'Health': ['HEALTHY', 'FIT', 'STRONG', 'ENERGETIC', 'NOURISHED'],
+    'Mindset': ['GROWTH', 'MINDFUL', 'FOCUSED', 'DISCIPLINED', 'GRATEFUL'],
+    'Finances': ['WEALTHY', 'FINANCIALLY WISE', 'ABUNDANT', 'PROSPEROUS'],
+    'Beauty': ['RADIANT', 'BEAUTIFUL', 'GLOWING', 'CONFIDENT'],
+    'Career': ['SUCCESSFUL', 'ACHIEVER', 'DRIVEN', 'STRATEGIC', 'EXCELLENT'],
+    'Relationships': ['LOVING', 'CONNECTED', 'SUPPORTIVE', 'COMPASSIONATE'],
+    'Spirituality': ['SPIRITUAL', 'INTUITIVE', 'PEACEFUL', 'CENTERED'],
+  };
+  const [categoryIdentities, setCategoryIdentities] = useState(() => {
+    const saved = localStorage.getItem('categoryIdentities');
+    return saved ? JSON.parse(saved) : defaultCategoryIdentities;
+  });
   
   // Form states
   const [newTask, setNewTask] = useState("");
@@ -323,6 +351,31 @@ function GlowApp({ session }) {
   // Identity form
   const [newIdentityName, setNewIdentityName] = useState("");
   const [newIdentityEmoji, setNewIdentityEmoji] = useState("✨");
+  
+  // Daily To-do state
+  const [showTodoList, setShowTodoList] = useState(false);
+  const [newTodo, setNewTodo] = useState("");
+  const [todoCategory, setTodoCategory] = useState(() => defaultCategories[0] || "Health");
+  const [todos, setTodos] = useState(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const saved = localStorage.getItem(`dailyTodos_${today}`);
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  // Refresh todos when day changes (midnight reset)
+  useEffect(() => {
+    const checkDayChange = () => {
+      const today = new Date().toISOString().split('T')[0];
+      const saved = localStorage.getItem(`dailyTodos_${today}`);
+      setTodos(saved ? JSON.parse(saved) : []);
+    };
+    
+    const now = new Date();
+    const msUntilMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0) - now;
+    const midnightTimer = setTimeout(checkDayChange, msUntilMidnight);
+    
+    return () => clearTimeout(midnightTimer);
+  }, []);
 
   const days = ["Today", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   
@@ -425,6 +478,57 @@ function GlowApp({ session }) {
     // Skip if we already have tasks OR if archetypes just loaded
   }, []);
 
+  // Get unique emoji for identity based on name
+  const getIdentityEmoji = (identity) => {
+    if (identity.emoji && identity.emoji !== '✨') return identity.emoji;
+    
+    const emojiMap = {
+      // Health & Fitness
+      'HEALTHY': '💪', 'FIT': '🏃', 'STRONG': '💪', 'ENERGETIC': '⚡', 'VIBRANT': '🌟',
+      'NOURISHED': '🥗', 'VITALITY': '❤️', 'ACTIVE': '🏃', 'WELL': '🧘', 'REFRESHED': '🌿',
+      
+      // Mindset & Growth
+      'GROWTH': '🌱', 'MINDFUL': '🧠', 'AWARE': '👁️', 'PRESENT': '🧘', 'FOCUSED': '🎯',
+      'DISCIPLINED': '📏', 'CONSISTENT': '🔄', 'DETERMINED': '💪', 'RESILIENT': '🦋',
+      'GRATEFUL': '🙏', 'POSITIVE': '☀️', 'OPTIMISTIC': '🌈', 'BRAVE': '🦁',
+      
+      // Beauty & Self-care
+      'BEAUTIFUL': '🌸', 'RADIANT': '✨', 'GLOWING': '💫', 'CARED_FOR': '💝',
+      
+      // Career & Success
+      'SUCCESSFUL': '🏆', 'ACHIEVER': '🎯', 'DRIVEN': '🚀', 'AMBITION': '⭐', 'PROFESSIONAL': '💼',
+      'EXCELLENT': '🌟', 'TOP_PERFORMER': '🏅', 'STRATEGIC': '♟️', 'INNOVATIVE': '💡',
+      
+      // Finances
+      'WEALTHY': '💎', 'FINANCIALLY WISE': '💰', 'ABUNDANT': '🌟', 'PROSPEROUS': '💎',
+      'MONEY_CONSCIOUS': '💵', 'FINANCIALLY_FREE': '🗽',
+      
+      // Relationships
+      'LOVING': '❤️', 'CONNECTED': '🤝', 'SUPPORTIVE': '💜', 'COMPASSIONATE': '💕',
+      'EMPATHETIC': '💗', 'KIND': '🌸', 'FRIENDLY': '😊', 'HARMONIOUS': '🎵',
+      
+      // Spirituality
+      'PEACEFUL': '☮️', 'SPIRITUAL': '🧘‍♀️', 'INTUITIVE': '👁️', 'CALM': '🕊️', 'CENTERED': '⚖️', 'WHOLE': '💫',
+      'INTEGRATED': '🔗', 'ENLIGHTENED': '🕯️', 'DIVINE': '⭐', 'SACRED': '🔮',
+      
+      // Balance
+      'BALANCED': '⚖️', 'GROUNDED': '🌳', 'STABLE': '🏔️', 'ROOTED': '🌲',
+      
+      // Emotions
+      'JOYFUL': '😊', 'HAPPY': '😄', 'BLISSFUL': '🌈', 'CONTENT': '😊', 'SERENE': '🌙',
+      
+      // Power words
+      'CONFIDENT': '💫', 'EMPOWERED': '🦁', 'MIGHTY': '⚡', 'UNSTOPPABLE': '🔥',
+      'WORTHY': '💎', 'DESERVING': '🌟', 'ENOUGH': '✅',
+      
+      // Legacy
+      'LEGACY': '📜', 'IMPACT': '🌍', 'MEANINGFUL': '💖', 'PURPOSE': '🎯', 'MISSION': '🎯',
+    };
+    
+    const name = identity.name?.toUpperCase().replace(/[^A-Z]/g, '') || '';
+    return emojiMap[name] || '✨';
+  };
+
   async function loadData() {
     const userId = session?.user?.id;
     
@@ -446,24 +550,6 @@ function GlowApp({ session }) {
       setTasks(tasksData || []);
     } catch (e) { 
       console.error("Tasks load error:", e); 
-    }
-
-    // Load user scores from Supabase if logged in
-    if (userId) {
-      try {
-        const { data: userScore } = await supabase
-          .from("user_scores")
-          .select("*")
-          .eq("user_id", userId)
-          .single();
-        
-        if (userScore) {
-          // Restore localStorage from saved scores
-          if (userScore.identity_scores) {
-            // Identity scores are stored per-habit completion
-          }
-        }
-      } catch (e) { /* ignore if no scores yet */ }
     }
     
     try {
@@ -487,7 +573,19 @@ function GlowApp({ session }) {
     }
 
     try {
-      const result = await supabase.from("identities").select("*").limit(10);
+      // Load identities only for adopted archetypes or user's own identities
+      let identitiesQuery = supabase
+        .from("identities")
+        .select("*")
+        .order("created_at", { ascending: true });
+      
+      if (userId && adoptedArchetypes.length > 0) {
+        // Get adopted archetype IDs
+        const adoptedIds = adoptedArchetypes.map(a => a.id);
+        identitiesQuery = identitiesQuery.or(`user_id.eq.${userId},archetype_id.in.(${adoptedIds.join(',')})`);
+      }
+      
+      const result = await identitiesQuery;
       logError("identities.select", result);
       setIdentities(result.data || []);
     } catch (e) { /* ignore */ }
@@ -650,6 +748,10 @@ function GlowApp({ session }) {
 
     // Determine page based on category
     const page = (taskCategory === "Work" || taskCategory === "School") ? "work" : currentPage;
+    
+    // Auto-link identities based on category
+    const categoryIdents = categoryIdentities[taskCategory] || [];
+    const mergedTags = [...new Set([...identityTags, ...categoryIdents])];
 
     try {
       const { error } = await supabase.from("tasks").insert({
@@ -661,7 +763,7 @@ function GlowApp({ session }) {
         is_all_day: isAllDay,
         day: actualDay,
         days: [actualDay],
-        identity_tags: identityTags,
+        identity_tags: mergedTags,
         archetype_id: activeArchetype?.id || null,
         two_minute_version: twoMinVersion || null,
         user_id: session?.user?.id,
@@ -677,29 +779,6 @@ function GlowApp({ session }) {
         loadData();
       }
     } catch (e) { console.log("Add habit error:", e); }
-  }
-
-  // Save scores to Supabase
-  async function saveScoresToSupabase() {
-    const userId = session?.user?.id;
-    if (!userId) return;
-    
-    const weekly = getWeeklyAverage();
-    const overall = getCumulativeAverage();
-    const streak = getStreak();
-    
-    try {
-      // Upsert user scores
-      await supabase.from("user_scores").upsert({
-        user_id: userId,
-        weekly_glow: weekly,
-        overall_glow: overall,
-        current_streak: streak,
-        last_updated: new Date().toISOString()
-      }, { onConflict: 'user_id' });
-    } catch (e) {
-      console.error("Error saving scores:", e);
-    }
   }
 
   async function toggleTask(id, completed, task = null, date = null) {
@@ -718,9 +797,6 @@ function GlowApp({ session }) {
       
       // Save daily average after toggling
       saveDailyAverage();
-      
-      // Save scores to Supabase
-      saveScoresToSupabase();
       
       // Force re-render to update scores from localStorage
       setRefreshKey(k => k + 1);
@@ -760,6 +836,82 @@ function GlowApp({ session }) {
     
     return dailyAverage;
   }
+  
+  // Calculate Glow Score: +3 per habit, +1 per todo, +25 bonus for 100%
+  const getGlowScore = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    
+    // Get today's habits
+    const todayTasks = tasks.filter(t => {
+      if (t.is_all_day) return true;
+      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+      return taskDays?.includes(todayName);
+    });
+    
+    // Count completed habits
+    const completedHabits = todayTasks.filter(t => 
+      localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true'
+    ).length;
+    
+    // Get today's todos
+    const todayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${today}`) || '[]');
+    const completedTodos = todayTodos.filter(t => t.completed).length;
+    
+    // Calculate base points
+    let points = (completedHabits * 3) + completedTodos;
+    
+    // Check if all habits completed for bonus
+    if (todayTasks.length > 0 && completedHabits === todayTasks.length) {
+      points += 25; // Bonus for 100%
+    }
+    
+    return points;
+  };
+  
+  // Get total cumulative glow points
+  const getTotalGlowPoints = () => {
+    const history = JSON.parse(localStorage.getItem('glowPointsHistory') || '{}');
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Add today's points to history
+    const todayPoints = getGlowScore();
+    history[today] = todayPoints;
+    
+    // Calculate total
+    const total = Object.values(history).reduce((sum, val) => sum + val, 0);
+    return total;
+  };
+  
+  // Share progress with accountability partner
+  const shareWithPartner = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const partnerId = localStorage.getItem('accountabilityPartner');
+    if (!partnerId) return;
+    
+    const dailyAvg = glowScore ? glowScore() : 0;
+    const streak = getStreak ? getStreak() : 0;
+    const weeklyGlow = getWeeklyAverage ? getWeeklyAverage() : 0;
+    const goals = JSON.parse(localStorage.getItem('longTermGoals') || '[]');
+    
+    const progressData = {
+      [today]: dailyAvg,
+      streak: streak,
+      weeklyGlow: weeklyGlow,
+      goals: goals,
+      lastUpdated: new Date().toISOString()
+    };
+    
+    // Store locally for demo (in production, would sync to Supabase)
+    localStorage.setItem(`partnerProgress_${session?.user?.id}`, JSON.stringify(progressData));
+  };
+  
+  // Share data when page loads and on changes
+  useEffect(() => {
+    if (session?.user?.id) {
+      shareWithPartner();
+    }
+  }, [tasks, completionLogs]);
 
   // Helper to check if task is completed today (uses localStorage)
   const isCompletedToday = (taskId) => {
@@ -903,10 +1055,49 @@ function GlowApp({ session }) {
   }
 
   async function deleteIdentity(id) {
-    const result = await supabase.from("identities").delete().eq("id", id);
-    logError("identities.delete", result);
-    loadData();
+    // Remove identity locally only - keeps it in the app for other users
+    setIdentities(prev => prev.filter(identity => identity.id !== id));
   }
+  
+  // Daily To-do functions
+  const saveTodos = (updatedTodos) => {
+    const today = new Date().toISOString().split('T')[0];
+    setTodos(updatedTodos);
+    localStorage.setItem(`dailyTodos_${today}`, JSON.stringify(updatedTodos));
+  };
+  
+  const addTodo = () => {
+    if (!newTodo.trim()) return;
+    const todo = {
+      id: Date.now(),
+      title: newTodo,
+      category: todoCategory,
+      completed: false,
+      createdAt: new Date().toISOString()
+    };
+    saveTodos([...todos, todo]);
+    setNewTodo("");
+  };
+  
+  const toggleTodo = (id) => {
+    const todo = todos.find(t => t.id === id);
+    const updatedTodos = todos.map(t => 
+      t.id === id ? { ...t, completed: !t.completed } : t
+    );
+    saveTodos(updatedTodos);
+    
+    // Show glow animation when completing a todo
+    if (todo && !todo.completed) {
+      setShowGlowAnimation(true);
+      setTimeout(() => setShowGlowAnimation(false), 3000);
+    }
+  };
+  
+  const deleteTodo = (id) => {
+    const confirmed = confirm('Delete this task?');
+    if (!confirmed) return;
+    saveTodos(todos.filter(t => t.id !== id));
+  };
 
   async function deleteArchetype(archetype) {
     const confirmed = confirm(`Are you sure you want to remove "${archetype.name}"? This will also delete all associated tasks. This cannot be undone.`);
@@ -933,18 +1124,43 @@ function GlowApp({ session }) {
   }
 
   async function addUserArchetype() {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    
     const { error } = await supabase.from("archetypes").insert({
       name: newIdentityName,
       emoji: newIdentityEmoji,
       description: "Custom archetype created by user",
       default_identities: [newIdentityName],
       template_habits: [],
+      user_id: userId, // Only visible to this user
     });
     logError("archetypes.insert (addUserArchetype)", { error });
     
     if (!error) {
       loadData();
     }
+  }
+  
+  async function deleteUserArchetype(archetype) {
+    const confirmed = confirm(`Delete "${archetype.name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    
+    // Delete from Supabase
+    await supabase.from("archetypes").delete().eq("id", archetype.id);
+    
+    // Remove from adopted archetypes
+    const updatedAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
+    setAdoptedArchetypes(updatedAdopted);
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(updatedAdopted));
+    
+    // Clear active archetype if it was this one
+    if (activeArchetype?.id === archetype.id) {
+      setActiveArchetype(null);
+      localStorage.removeItem('activeArchetype');
+    }
+    
+    loadData();
   }
 
   async function switchToArchetype(archetype) {
@@ -1015,14 +1231,6 @@ function GlowApp({ session }) {
     return Math.round((completed / categoryTasks.length) * 100);
   };
 
-  const getGlowScore = () => {
-    const categories = ["Health", "Mindset", "Finances", "Beauty"];
-    const categoryScores = categories.map(cat => getCategoryProgress(cat));
-    const validScores = categoryScores.filter(s => s > 0);
-    if (validScores.length === 0) return 0;
-    const average = validScores.reduce((a, b) => a + b, 0) / validScores.length;
-    return Math.round(average);
-  };
 
   // Score based on completed tasks (1 point per task)
   const getIdentityScore = (identityId) => {
@@ -1134,7 +1342,8 @@ function GlowApp({ session }) {
       <button className="settings-btn" onClick={() => setShowSettings(!showSettings)}>✿</button>
       
       {showSettings && (
-        <div className="settings-panel">
+        <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+          <div className="settings-panel" onClick={e => e.stopPropagation()}>
           <div className="settings-header">
             <h2>Settings</h2>
             <button className="close-settings" onClick={() => setShowSettings(false)}>×</button>
@@ -1171,10 +1380,10 @@ function GlowApp({ session }) {
 
           <div className="settings-section">
             <h3>Add Archetype</h3>
-            <p className="settings-hint">Choose from available archetypes</p>
+            <p className="settings-hint">Choose from available templates</p>
             <div className="archetype-switcher">
               {archetypes
-                .filter(arch => !adoptedArchetypes.find(a => a.id === arch.id))
+                .filter(arch => !arch.user_id && !adoptedArchetypes.find(a => a.id === arch.id))
                 .map(arch => (
                   <div
                     key={arch.id}
@@ -1218,21 +1427,127 @@ function GlowApp({ session }) {
           </div>
 
           <div className="settings-section">
-            <h3>My Identities</h3>
-            <p className="settings-hint">All your identity traits across archetypes</p>
-            <div className="identity-list">
-              {identities.length > 0 ? (
-                identities.map(id => (
-                  <div key={id.id} className="identity-list-item">
-                    <span>{id.emoji} {id.name}</span>
-                    <span className="identity-score">{getIdentityScore(id.id) || 0} pts</span>
+            <h3>My Custom Archetypes</h3>
+            <p className="settings-hint">Archetypes you created</p>
+            <div className="archetype-switcher">
+              {archetypes
+                .filter(arch => arch.user_id === session?.user?.id)
+                .map(arch => (
+                  <div
+                    key={arch.id}
+                    className={`archetype-switch-btn ${activeArchetype?.id === arch.id ? 'active' : ''}`}
+                    onClick={() => switchToArchetype(arch)}
+                  >
+                    {arch.emoji} {arch.name}
+                    <button 
+                      className="remove-archetype-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteUserArchetype(arch);
+                      }}
+                    >
+                      ×
+                    </button>
                   </div>
-                ))
-              ) : (
-                <p className="empty-message">No identities yet. Adopt an archetype to build your identities.</p>
-              )}
+                ))}
             </div>
           </div>
+
+          <div className="settings-section">
+            <h3>My Identities</h3>
+            <p className="settings-hint">
+              {activeArchetype ? `Identities for ${activeArchetype.name}` : 'Select an archetype to view identities'}
+            </p>
+            {!activeArchetype ? (
+              <p className="empty-message">Select an archetype to see identities</p>
+            ) : (
+              <div className="identity-list">
+                {(() => {
+                  // Filter by archetype and remove duplicates by name
+                  let filteredIdentities = activeArchetype 
+                    ? identities.filter(id => id.archetype_id === activeArchetype.id)
+                    : [];
+                  
+                  // Remove duplicates based on name
+                  const seen = new Set();
+                  filteredIdentities = filteredIdentities.filter(id => {
+                    const key = id.name?.toUpperCase();
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                  });
+                  
+                  return filteredIdentities.length > 0 ? (
+                    filteredIdentities.map(id => (
+                      <div key={id.id} className="identity-list-item">
+                        <span>{getIdentityEmoji(id)} {id.name}</span>
+                        <span className="identity-score">{getIdentityScore(id.id) || 0} pts</span>
+                        <button 
+                          className="identity-delete-btn"
+                          onClick={() => deleteIdentity(id.id)}
+                          title="Remove this identity"
+                        >×</button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="empty-message">No identities for {activeArchetype.name}</p>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          <div className="settings-section">
+            <h3>Category Identities</h3>
+            <p className="settings-hint">Edit which identities are linked to each category</p>
+            {categoriesList.map(cat => (
+              <div key={cat} className="category-identity-mapping">
+                <span className="category-name">{cat}:</span>
+                <span className="category-identities">
+                  {(categoryIdentities[cat] || []).join(', ')}
+                </span>
+                <button 
+                  className="edit-btn"
+                  onClick={() => setEditingCategoryIdentities(cat)}
+                >✎</button>
+              </div>
+            ))}
+          </div>
+          
+          {editingCategoryIdentities && (
+            <div className="modal-overlay" onClick={() => setEditingCategoryIdentities(null)}>
+              <div className="modal" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2>Edit {editingCategoryIdentities} Identities</h2>
+                  <button onClick={() => setEditingCategoryIdentities(null)}>×</button>
+                </div>
+                <div className="modal-content">
+                  <p>Enter identity names separated by commas:</p>
+                  <textarea
+                    className="input"
+                    value={(categoryIdentities[editingCategoryIdentities] || []).join(', ')}
+                    onChange={(e) => {
+                      const names = e.target.value.split(',').map(n => n.trim().toUpperCase().replace(/\s+/g, '_')).filter(Boolean);
+                      setCategoryIdentities({
+                        ...categoryIdentities,
+                        [editingCategoryIdentities]: names
+                      });
+                    }}
+                    rows={4}
+                  />
+                  <button 
+                    className="button" 
+                    onClick={() => {
+                      localStorage.setItem('categoryIdentities', JSON.stringify(categoryIdentities));
+                      setEditingCategoryIdentities(null);
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="settings-section">
             <h3>Help</h3>
@@ -1249,6 +1564,7 @@ function GlowApp({ session }) {
               Sign Out
             </button>
           </div>
+        </div>
         </div>
       )}
 
@@ -1274,21 +1590,27 @@ function GlowApp({ session }) {
                 </div>
                 
                 <div className="how-item">
+                  <span className="how-icon">📝</span>
+                  <h4>Daily To-Do List</h4>
+                  <p>Add quick tasks for the day that reset at midnight. These factor into your glow score!</p>
+                </div>
+                
+                <div className="how-item">
                   <span className="how-icon">✨</span>
-                  <h4>Two-Minute Version</h4>
-                  <p>Every habit has a 2-minute version. On tough days, do just the minimum to keep your streak alive.</p>
+                  <h4>Glow Score Points</h4>
+                  <p>Earn +3 points per habit completed, +1 per todo, and a +25 bonus when you complete 100% of your daily habits!</p>
                 </div>
                 
                 <div className="how-item">
-                  <span className="how-icon">⭐</span>
-                  <h4>Glow Score</h4>
-                  <p>Earn 10 points for each habit completed. Your glow score reflects your commitment to becoming your best self.</p>
+                  <span className="how-icon">📊</span>
+                  <h4>Today's Glow</h4>
+                  <p>Track your daily progress as a percentage - complete more habits to increase your glow!</p>
                 </div>
                 
                 <div className="how-item">
-                  <span className="how-icon">🔄</span>
-                  <h4>Friction Check</h4>
-                  <p>When you skip a habit, we ask why. This helps you understand your patterns and build self-awareness.</p>
+                  <span className="how-icon">👥</span>
+                  <h4>Accountability Partner</h4>
+                  <p>Connect with friends in the community to share progress, motivate each other, and stay on track together!</p>
                 </div>
               </div>
             </div>
@@ -1297,14 +1619,16 @@ function GlowApp({ session }) {
       )}
       
       {/* Floating Glow Score */}
-      {showFloatingGlow && (
-        <div className="floating-glow" onClick={() => setShowFloatingGlow(false)}>
-          <div className="floating-glow-content" onClick={e => e.stopPropagation()}>
-            <span className="floating-glow-score">{overallAvg}%</span>
+      {!minimizeGlow ? (
+        <div className="floating-glow">
+          <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
+          <div className="floating-glow-content">
+            <span className="floating-glow-score">{getGlowScore()}</span>
             <span className="floating-glow-label">Glow</span>
-            <button className="floating-glow-minimize">−</button>
           </div>
         </div>
+      ) : (
+        <button className="glow-restore-btn" onClick={() => setMinimizeGlow(false)}>✨</button>
       )}
       
       {/* Bottom Navigation */}
@@ -1352,7 +1676,8 @@ function GlowApp({ session }) {
           <div className="sparkles"></div>
           <button className="glow-close-btn" onClick={(e) => { e.stopPropagation(); setShowGlowAnimation(false); }}>×</button>
           <div className="glow-burst">✨</div>
-          <div className="glow-message">You're on a glow ✨</div>
+          <div className="glow-message">You're on a glow! ✨</div>
+          <div className="glow-points-added">+{getGlowScore() - (getGlowScore() > 3 ? 3 : 1)}</div>
         </div>
       )}
 
@@ -1434,6 +1759,17 @@ function GlowApp({ session }) {
           onEditTask={openEditHabit}
           categoriesList={categoriesList}
           refreshKey={refreshKey}
+          todos={todos}
+          onAddTodo={addTodo}
+          onToggleTodo={toggleTodo}
+          onDeleteTodo={deleteTodo}
+          newTodo={newTodo}
+          setNewTodo={setNewTodo}
+          todoCategory={todoCategory}
+          setTodoCategory={setTodoCategory}
+          getGlowScore={getGlowScore}
+          showTodoList={showTodoList}
+          setShowTodoList={setShowTodoList}
         />
       )}
 
@@ -1477,6 +1813,7 @@ function GlowApp({ session }) {
           tasks={tasks}
           completionLogs={completionLogs}
           categoriesList={categoriesList}
+          activeArchetype={activeArchetype}
         />
       )}
 
@@ -1490,7 +1827,7 @@ function GlowApp({ session }) {
 }
 
 // Home Page Component
-function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggleTask, onDeleteTask, onEditTask, categoriesList = ["Health", "Mindset", "Finances", "Beauty"], refreshKey }) {
+function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggleTask, onDeleteTask, onEditTask, categoriesList = ["Health", "Mindset", "Finances", "Beauty"], refreshKey, todos = [], onAddTodo, onToggleTodo, onDeleteTodo, newTodo, setNewTodo, todoCategory, setTodoCategory, showTodoList, setShowTodoList, getGlowScore }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   
   const getCompletedTaskIds = () => {
@@ -1524,15 +1861,39 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
 
   // Get categories that have tasks
   const getUsedCategories = () => {
-    const usedCategories = new Set(tasks.map(t => t.category).filter(Boolean));
+    const usedCategories = new Set([
+      ...tasks.map(t => t.category).filter(Boolean),
+      ...todos.map(t => t.category).filter(Boolean)
+    ]);
     return categoriesList.filter(c => usedCategories.has(c));
   };
 
-  // Glow score is average of ALL used categories (including 0s)
+  // Get todo progress for a category
+  const getTodoProgress = (category) => {
+    const categoryTodos = todos.filter(t => t.category === category);
+    if (categoryTodos.length === 0) return null;
+    const completed = categoryTodos.filter(t => t.completed).length;
+    return Math.round((completed / categoryTodos.length) * 100);
+  };
+
+  // Today's Glow - average percentage of habits completed (not todos)
+  const getTodaysGlow = () => {
+    if (todayTasks.length === 0) return 0;
+    const completed = todayTasks.filter(t => completedIds.has(t.id)).length;
+    return Math.round((completed / todayTasks.length) * 100);
+  };
+
+  // Glow score is average of ALL used categories (including todos)
   const glowScore = () => {
     const usedCategories = getUsedCategories();
     if (usedCategories.length === 0) return 0;
-    const progress = usedCategories.map(c => getCategoryProgress(c));
+    const progress = usedCategories.map(c => {
+      const taskProgress = getCategoryProgress(c);
+      const todoProgress = getTodoProgress(c);
+      if (todoProgress === null) return taskProgress;
+      if (taskProgress === 0) return todoProgress;
+      return Math.round((taskProgress + todoProgress) / 2);
+    });
     return Math.round(progress.reduce((a, b) => a + b, 0) / progress.length);
   };
 
@@ -1678,7 +2039,7 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
 
   const streak = getStreak();
   const streakLabel = streak >= 30 ? "Full Glow" : streak >= 10 ? "Aura" : streak >= 3 ? "Sparkle" : "";
-  const dailyAvg = glowScore();
+  const dailyAvg = getTodaysGlow();
   const weeklyAvg = getWeeklyAverage();
   const overallAvg = getCumulativeAverage();
 
@@ -1696,16 +2057,6 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
         <span className="glow-percentage">{dailyAvg}%</span>
       </div>
 
-      <div className="home-section streak-section">
-        <h2>Weekly Glow</h2>
-        <div className="glow-progress-bar-container">
-          <div className="glow-progress-bar weekly" style={{ width: `${weeklyAvg}%` }}>
-            <span className="glow-sparkles">✧ ✦ ✧</span>
-          </div>
-        </div>
-        <span className="glow-percentage">{weeklyAvg}%</span>
-      </div>
-
       <div className="home-section glow-score-section">
         <h2>Glow Streak</h2>
         <div className="glow-progress-bar-container">
@@ -1719,14 +2070,6 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
             <span className="streak-hint">Complete all daily habits to get a Glow Streak</span>
           )}
           {streakLabel && <span className="streak-badge">{streakLabel}</span>}
-        </div>
-      </div>
-
-      <div className="home-section glow-score-section">
-        <h2>Glow Score</h2>
-        <div className="glow-score-display">
-          <span className="glow-score-value large light">{overallAvg}% ✧</span>
-          <span className="streak-label">all time average</span>
         </div>
       </div>
 
@@ -1775,12 +2118,66 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
           </div>
         )}
       </div>
+
+      {/* Today's To-Do List Section */}
+      <div className="home-section daily-todo-section">
+        <div className="todo-header" onClick={() => setShowTodoList(!showTodoList)}>
+          <h2>Today's To-Do List</h2>
+          <span className="todo-toggle">{showTodoList ? '▼' : '▶'}</span>
+        </div>
+        
+        {showTodoList && (
+          <>
+            <div className="todo-add-form">
+              <input
+                className="input todo-input"
+                placeholder="Add a task..."
+                value={newTodo}
+                onChange={(e) => setNewTodo(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && onAddTodo()}
+              />
+              <select
+                className="input todo-category-select"
+                value={todoCategory}
+                onChange={(e) => setTodoCategory(e.target.value)}
+              >
+                {categoriesList.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <button className="button todo-add-btn" onClick={onAddTodo}>+</button>
+            </div>
+            
+            {todos.length === 0 ? (
+              <p className="empty-message">No tasks for today</p>
+            ) : (
+              <div className="todo-list">
+                {todos.map(todo => (
+                  <div key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
+                    <div 
+                      className="todo-checkbox"
+                      onClick={() => onToggleTodo(todo.id)}
+                    >
+                      <span className="checkbox-emoji">{todo.completed ? '✓' : '○'}</span>
+                      <span className="todo-text">{todo.title}</span>
+                    </div>
+                    <div className="todo-actions">
+                      <span className="todo-category-tag">{todo.category}</span>
+                      <button className="delete-btn" onClick={() => onDeleteTodo(todo.id)}>×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
 
-// Habits Page Component  
+  // Habits Page Component
 function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks, refreshKey }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const todayDate = new Date().toDateString();
@@ -2296,7 +2693,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
       <h1 className="title">Insights ✧</h1>
       
       <div className="insights-section">
-        <h2>Average Progress</h2>
+        <h2>Average Glow</h2>
         <div className="averages-grid">
           <div className="average-card">
             <span className="average-label">Today</span>
@@ -2314,13 +2711,6 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
             <span className="average-label">All Time</span>
             <span className="average-value">{cumulativeAvg}%</span>
           </div>
-        </div>
-      </div>
-
-      <div className="insights-section">
-        <h2>Today's Progress</h2>
-        <div className="glow-score-display">
-          <span className="glow-score-value large">{glowScore()} ✧</span>
         </div>
       </div>
 
@@ -2367,13 +2757,28 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
 }
 
 // Growth Page Component
-function GrowthPage({ identities, tasks, completionLogs, categoriesList }) {
+function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype }) {
+  // Filter identities - only show when an archetype is selected, remove duplicates
+  let displayIdentities = activeArchetype 
+    ? identities.filter(id => id.archetype_id === activeArchetype.id)
+    : [];
+  
+  // Remove duplicates based on name
+  const seen = new Set();
+  displayIdentities = displayIdentities.filter(id => {
+    const key = id.name?.toUpperCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  
   const [showAddGoal, setShowAddGoal] = useState(false);
   const [goals, setGoals] = useState(() => {
     const saved = localStorage.getItem('longTermGoals');
     return saved ? JSON.parse(saved) : [];
   });
   const [newGoal, setNewGoal] = useState({ title: '', category: 'Health', timeframe: '3m' });
+  const [editingGoal, setEditingGoal] = useState(null);
   
   const timeframes = [
     { value: '3m', label: '3 Months' },
@@ -2400,7 +2805,17 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList }) {
   };
   
   const deleteGoal = (id) => {
+    const confirmed = confirm('Delete this goal?');
+    if (!confirmed) return;
     const updatedGoals = goals.filter(g => g.id !== id);
+    setGoals(updatedGoals);
+    localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
+  };
+  
+  const saveGoalEdit = (goalId, field, value) => {
+    const updatedGoals = goals.map(g => 
+      g.id === goalId ? { ...g, [field]: value } : g
+    );
     setGoals(updatedGoals);
     localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
   };
@@ -2460,16 +2875,51 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList }) {
           <div className="goals-list">
             {goals.map(goal => (
               <div key={goal.id} className="goal-item">
-                <div className="goal-info">
-                  <span className="goal-title">{goal.title}</span>
-                  <div className="goal-meta">
-                    <span className="goal-category">{goal.category}</span>
-                    <span className="goal-timeframe">
-                      {timeframes.find(tf => tf.value === goal.timeframe)?.label}
-                    </span>
+                {editingGoal === goal.id ? (
+                  <div className="goal-edit-form">
+                    <input
+                      className="input"
+                      value={goal.title}
+                      onChange={(e) => saveGoalEdit(goal.id, 'title', e.target.value)}
+                      placeholder="Goal title"
+                    />
+                    <select
+                      className="input"
+                      value={goal.category}
+                      onChange={(e) => saveGoalEdit(goal.id, 'category', e.target.value)}
+                    >
+                      {categoriesList.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="input"
+                      value={goal.timeframe}
+                      onChange={(e) => saveGoalEdit(goal.id, 'timeframe', e.target.value)}
+                    >
+                      {timeframes.map(tf => (
+                        <option key={tf.value} value={tf.value}>{tf.label}</option>
+                      ))}
+                    </select>
+                    <button className="button" onClick={() => setEditingGoal(null)}>Done</button>
                   </div>
-                </div>
-                <button className="delete-btn" onClick={() => deleteGoal(goal.id)}>×</button>
+                ) : (
+                  <>
+                    <div className="goal-info">
+                      <span className="goal-title">{goal.title}</span>
+                      <div className="goal-meta">
+                        <span className="goal-category">{goal.category}</span>
+                        <span className="goal-timeframe">
+                          {timeframes.find(tf => tf.value === goal.timeframe)?.label}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="goal-actions">
+                      <button className="edit-btn" onClick={() => setEditingGoal(goal.id)}>✎</button>
+                      <button className="delete-btn" onClick={() => deleteGoal(goal.id)}>×</button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -2480,16 +2930,20 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList }) {
         <h2>Identity Development</h2>
         <p className="section-hint">Your growth across identity traits</p>
         
-        {identities.length === 0 ? (
-          <p className="empty-message">No identities yet. Adopt an archetype to build your identities.</p>
+        {displayIdentities.length === 0 ? (
+          <p className="empty-message">
+            {activeArchetype 
+              ? `No identities for ${activeArchetype.name} yet` 
+              : 'Select an archetype to see identities'}
+          </p>
         ) : (
           <div className="identities-progress">
-            {identities.map(id => {
+            {displayIdentities.map(id => {
               const progress = getIdentityProgress(id.id);
               return (
                 <div key={id.id} className="identity-progress-item">
                   <div className="identity-info">
-                    <span className="identity-emoji">{id.emoji}</span>
+                    <span className="identity-emoji">{getIdentityEmoji(id)}</span>
                     <span className="identity-name">{id.name}</span>
                   </div>
                   <div className="identity-score-display">
@@ -2516,6 +2970,13 @@ function CommunityPage({ session }) {
   const [joinedChallenges, setJoinedChallenges] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
   const [showJoinChallenge, setShowJoinChallenge] = useState(null);
+  
+  // Accountability partner state
+  const [accountabilityPartner, setAccountabilityPartner] = useState(() => {
+    return localStorage.getItem('accountabilityPartner') || null;
+  });
+  const [partnerData, setPartnerData] = useState(null);
+  const [showPartnerSelect, setShowPartnerSelect] = useState(false);
 
   useEffect(() => {
     loadFriends();
@@ -2559,6 +3020,28 @@ function CommunityPage({ session }) {
         .select('*')
         .in('id', requesterIds);
       setFriendRequests(profiles || []);
+    }
+    
+    // Load accountability partner data
+    if (accountabilityPartner) {
+      const { data: partnerProfile } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', accountabilityPartner)
+        .single();
+      
+      if (partnerProfile) {
+        // Load partner's progress data
+        const today = new Date().toISOString().split('T')[0];
+        const partnerProgress = JSON.parse(localStorage.getItem(`partnerProgress_${accountabilityPartner}`) || '{}');
+        setPartnerData({
+          ...partnerProfile,
+          todayProgress: partnerProgress[today] || 0,
+          streak: partnerProgress.streak || 0,
+          weeklyGlow: partnerProgress.weeklyGlow || 0,
+          goals: partnerProgress.goals || []
+        });
+      }
     }
   }
 
@@ -2662,6 +3145,10 @@ function CommunityPage({ session }) {
           onClick={() => setActiveTab('friends')}
         >Friends</span>
         <span 
+          className={`tab ${activeTab === 'accountability' ? 'active' : ''}`}
+          onClick={() => setActiveTab('accountability')}
+        >Accountability</span>
+        <span 
           className={`tab ${activeTab === 'challenges' ? 'active' : ''}`}
           onClick={() => setActiveTab('challenges')}
         >Challenges</span>
@@ -2709,6 +3196,126 @@ function CommunityPage({ session }) {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'accountability' && (
+        <div className="accountability-section">
+          <h2>Accountability Partner</h2>
+          <p className="section-hint">Share your progress and stay motivated together</p>
+          
+          {!accountabilityPartner ? (
+            <>
+              <p>Select a friend to be your accountability partner:</p>
+              <div className="friends-list">
+                {friends.length === 0 ? (
+                  <p className="empty-message">Add friends first to select an accountability partner</p>
+                ) : (
+                  friends.map(friend => (
+                    <div 
+                      key={friend.id} 
+                      className="friend-item selectable"
+                      onClick={() => {
+                        setAccountabilityPartner(friend.id);
+                        localStorage.setItem('accountabilityPartner', friend.id);
+                        loadFriends();
+                      }}
+                    >
+                      <span className="friend-avatar">{friend.emoji || '👤'}</span>
+                      <span className="friend-name">{friend.name || 'Friend'}</span>
+                      <span className="select-hint">+ Select</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="partner-card">
+                <div className="partner-header">
+                  <span className="partner-avatar">{partnerData?.emoji || '👤'}</span>
+                  <div className="partner-info">
+                    <h3>{partnerData?.name || 'Your Partner'}</h3>
+                    <button 
+                      className="button small"
+                      onClick={() => {
+                        setAccountabilityPartner(null);
+                        localStorage.removeItem('accountabilityPartner');
+                        setPartnerData(null);
+                      }}
+                    >
+                      Remove Partner
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="partner-stats">
+                  <div className="partner-stat">
+                    <span className="stat-value">{partnerData?.todayProgress || 0}%</span>
+                    <span className="stat-label">Today's Progress</span>
+                  </div>
+                  <div className="partner-stat">
+                    <span className="stat-value">{partnerData?.streak || 0}</span>
+                    <span className="stat-label">Day Streak</span>
+                  </div>
+                  <div className="partner-stat">
+                    <span className="stat-value">{partnerData?.weeklyGlow || 0}%</span>
+                    <span className="stat-label">Weekly Glow</span>
+                  </div>
+                </div>
+                
+                {partnerData?.streak > 0 && partnerData?.streak <= 3 && (
+                  <div className="partner-alert streak-warning">
+                    🔥 {partnerData.name}'s streak is at risk! Only {3 - partnerData.streak} days left!
+                  </div>
+                )}
+                
+                {(!partnerData?.todayProgress || partnerData?.todayProgress < 50) && (
+                  <div className="partner-alert progress-warning">
+                    ⚠️ {partnerData?.name || 'Your partner'} hasn't completed their habits today
+                  </div>
+                )}
+                
+                {partnerData?.goals?.length > 0 && (
+                  <div className="partner-goals">
+                    <h4>🎯 Their Goals</h4>
+                    {partnerData.goals.map((goal, idx) => (
+                      <div key={idx} className="partner-goal-item">
+                        <span>{goal.title}</span>
+                        <span className="goal-timeframe">{goal.timeframe}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <div className="share-section">
+                <h3>What You're Sharing</h3>
+                <div className="share-options">
+                  <label className="share-option">
+                    <input type="checkbox" defaultChecked />
+                    <span>Daily Progress</span>
+                  </label>
+                  <label className="share-option">
+                    <input type="checkbox" defaultChecked />
+                    <span>Glow Scores & Insights</span>
+                  </label>
+                  <label className="share-option">
+                    <input type="checkbox" defaultChecked />
+                    <span>Streak Status</span>
+                  </label>
+                  <label className="share-option">
+                    <input type="checkbox" defaultChecked />
+                    <span>Long-term Goals</span>
+                  </label>
+                  <label className="share-option">
+                    <input type="checkbox" defaultChecked />
+                    <span>Challenge Progress</span>
+                  </label>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}
