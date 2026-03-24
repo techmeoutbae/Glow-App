@@ -992,6 +992,15 @@ function GlowApp({ session }) {
       template_habits: habitsToSave
     }).eq('id', selectedArchetype.id);
 
+    // Also update localStorage copy with new template_habits
+    const updatedArchetypes = newAdopted.map(a => 
+      a.id === selectedArchetype.id 
+        ? { ...a, template_habits: habitsToSave }
+        : a
+    );
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(updatedArchetypes));
+    setAdoptedArchetypes(updatedArchetypes);
+
     for (const habit of templateHabits) {
       if (!habit.title?.trim()) continue;
       const category = habit.category || "Health";
@@ -1631,9 +1640,14 @@ function GlowApp({ session }) {
     const isAlreadyAdopted = adoptedArchetypes.find(a => a.id === archetype.id);
     
     if (isAlreadyAdopted) {
+      // Use localStorage backup for archetype data if available
+      const savedArchetypes = JSON.parse(localStorage.getItem('adoptedArchetypes') || '[]');
+      const localArchetype = savedArchetypes.find(a => a.id === archetype.id);
+      const archToUse = localArchetype || archetype;
+      
       // Just switch to the adopted archetype
-      setActiveArchetype(archetype);
-      localStorage.setItem('activeArchetype', JSON.stringify(archetype));
+      setActiveArchetype(archToUse);
+      localStorage.setItem('activeArchetype', JSON.stringify(archToUse));
       localStorage.setItem('hasCompletedOnboarding', 'true');
       setOnboardingStep(null);
     } else {
@@ -1642,8 +1656,14 @@ function GlowApp({ session }) {
       localStorage.setItem('activeArchetype', JSON.stringify(archetype));
       setOnboardingStep('template');
       
-      // Parse template_habits if it's a string
+      // Parse template_habits - check localStorage backup first
       let habits = archetype.template_habits;
+      const savedArchetypes = JSON.parse(localStorage.getItem('adoptedArchetypes') || '[]');
+      const localArchetype = savedArchetypes.find(a => a.id === archetype.id);
+      if (localArchetype?.template_habits) {
+        habits = localArchetype.template_habits;
+      }
+      
       if (typeof habits === 'string') {
         try {
           habits = JSON.parse(habits);
@@ -1658,8 +1678,16 @@ function GlowApp({ session }) {
   }
 
   async function editArchetypeTemplate(archetype) {
-    // Parse template_habits if it's a string
+    // Parse template_habits - check localStorage backup first, then archetype
     let habits = archetype.template_habits;
+    
+    // Check localStorage backup first
+    const savedArchetypes = JSON.parse(localStorage.getItem('adoptedArchetypes') || '[]');
+    const localArchetype = savedArchetypes.find(a => a.id === archetype.id);
+    if (localArchetype?.template_habits) {
+      habits = localArchetype.template_habits;
+    }
+    
     if (typeof habits === 'string') {
       try {
         habits = JSON.parse(habits);
