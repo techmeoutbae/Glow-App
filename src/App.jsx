@@ -404,9 +404,15 @@ function GlowApp({ session }) {
     return saved ? JSON.parse(saved) : [];
   });
    
-  // Force refresh after task toggle
+   // Force refresh after task toggle
   const [refreshKey, setRefreshKey] = useState(0);
   const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
+  
+  // Update glow display when refreshKey changes
+  const [glowDisplayKey, setGlowDisplayKey] = useState(0);
+  useEffect(() => {
+    setGlowDisplayKey(refreshKey);
+  }, [refreshKey]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
@@ -2229,7 +2235,7 @@ function GlowApp({ session }) {
       
       {/* Floating Glow Score */}
       {!minimizeGlow ? (
-        <div className="floating-glow">
+        <div className="floating-glow" key={`glow-${glowDisplayKey}`}>
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
             <span className="floating-glow-score">{getTotalGlowPoints()}</span>
@@ -2461,7 +2467,7 @@ function GlowApp({ session }) {
       {/* Profile Page Modal */}
       {showProfile && (
         <div className="modal-overlay" onClick={() => setShowProfile(false)}>
-          <div className="profile-modal" onClick={e => e.stopPropagation()}>
+          <div className="profile-modal" onClick={e => e.stopPropagation()} key={`profile-${glowDisplayKey}`}>
             <div className="profile-header">
               <button className="profile-close" onClick={() => setShowProfile(false)}>×</button>
               <div className="profile-avatar">
