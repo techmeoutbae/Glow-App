@@ -2780,6 +2780,141 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
   );
 }
 
+// Habits Page Component
+function HabitsPage({ tasks, pageTasks, showAllTasks, setShowAllTasks, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, refreshKey }) {
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  
+  const getCompletedTaskIds = () => {
+    const todayISO = new Date().toISOString().split('T')[0];
+    const completed = new Set();
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`task_completed_${todayISO}_`)) {
+        const taskId = key.replace(`task_completed_${todayISO}_`, '');
+        completed.add(taskId);
+      }
+    }
+    return completed;
+  };
+  
+  const completedIds = getCompletedTaskIds();
+  const displayTasks = showAllTasks ? tasks : pageTasks;
+  
+  const categories = [...new Set(displayTasks.map(t => t.category || 'Other'))];
+  
+  return (
+    <div className="habits-page">
+      <div className="page-header">
+        <h1>Habits</h1>
+        <div className="toggle-wrapper">
+          <span className={showAllTasks ? 'active' : ''}>All</span>
+          <button 
+            className="toggle-btn"
+            onClick={() => setShowAllTasks(!showAllTasks)}
+          >
+            {showAllTasks ? '📋' : '✓'}
+          </button>
+          <span className={!showAllTasks ? 'active' : ''}>Today</span>
+        </div>
+      </div>
+      
+      {categories.map(category => {
+        const categoryTasks = displayTasks.filter(t => (t.category || 'Other') === category);
+        if (categoryTasks.length === 0) return null;
+        
+        return (
+          <div key={category} className="habits-category">
+            <h2>{category}</h2>
+            {categoryTasks.map(task => {
+              const isDone = completedIds.has(task.id);
+              return (
+                <div key={task.id} className={`habit-item ${isDone ? 'completed' : ''}`}>
+                  <div 
+                    className="habit-checkbox"
+                    onClick={() => onToggleTask(task.id, isDone, task)}
+                  >
+                    <span className="checkbox-emoji">{isDone ? '✓' : '○'}</span>
+                    <span className="habit-text">{task.title}</span>
+                  </div>
+                  <div className="habit-actions">
+                    <button className="edit-btn" onClick={() => onEditTask(task)}>✎</button>
+                    <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+      
+      {displayTasks.length === 0 && (
+        <p className="empty-message">No habits yet. Add some from the Home page!</p>
+      )}
+    </div>
+  );
+}
+
+// Insights Page Component
+function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey }) {
+  const today = new Date().toISOString().split('T')[0];
+  
+  const getCompletedTaskIds = () => {
+    const todayISO = new Date().toISOString().split('T')[0];
+    const completed = new Set();
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`task_completed_${todayISO}_`)) {
+        const taskId = key.replace(`task_completed_${todayISO}_`, '');
+        completed.add(taskId);
+      }
+    }
+    return completed;
+  };
+  
+  const completedIds = getCompletedTaskIds();
+  
+  const getCategoryProgress = (category) => {
+    const categoryTasks = tasks.filter(t => (t.category || 'Other') === category);
+    if (categoryTasks.length === 0) return 0;
+    const completed = categoryTasks.filter(t => completedIds.has(t.id)).length;
+    return Math.round((completed / categoryTasks.length) * 100);
+  };
+  
+  const totalTasks = tasks.length;
+  const completedTasks = completedIds.size;
+  const overallProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  
+  return (
+    <div className="insights-page">
+      <h1>Insights</h1>
+      
+      <div className="insight-card">
+        <h3>Today's Progress</h3>
+        <div className="progress-ring">
+          <span className="progress-number">{overallProgress}%</span>
+        </div>
+        <p>{completedTasks} of {totalTasks} habits completed</p>
+      </div>
+      
+      <div className="category-breakdown">
+        <h3>By Category</h3>
+        {categoriesList.map(category => {
+          const progress = getCategoryProgress(category);
+          return (
+            <div key={category} className="category-progress">
+              <span className="category-name">{category}</span>
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+              </div>
+              <span className="category-percent">{progress}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Growth Page Component
 function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, adoptedArchetypes, getIdentityEmoji }) {
   let displayIdentities = identities;
