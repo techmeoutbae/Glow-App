@@ -416,7 +416,15 @@ function GlowApp({ session }) {
   
   // Update glow score whenever tasks load or refreshKey changes
   useEffect(() => {
-    setTotalGlowPoints(getTotalGlowPoints());
+    // Try to use cached value first for speed
+    const cached = localStorage.getItem('cachedGlowScore');
+    if (cached) {
+      setTotalGlowPoints(parseInt(cached) || 0);
+    }
+    // Always recalculate to ensure accuracy
+    const calculated = getTotalGlowPoints();
+    localStorage.setItem('cachedGlowScore', calculated.toString());
+    setTotalGlowPoints(calculated);
   }, [tasks, refreshKey, session?.user?.id]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
@@ -1168,8 +1176,10 @@ function GlowApp({ session }) {
         setTimeout(() => setShowGlowAnimation(false), 3000);
       }
       
-      // Update glow score immediately
-      setTotalGlowPoints(getTotalGlowPoints());
+      // Calculate and store glow score in localStorage for reliability
+      const newGlow = getTotalGlowPoints();
+      localStorage.setItem('cachedGlowScore', newGlow.toString());
+      setTotalGlowPoints(newGlow);
       
       // Save daily average
       saveDailyAverage();
