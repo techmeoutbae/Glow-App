@@ -623,6 +623,19 @@ body {
   box-shadow: 0 0 0 3px var(--theme-glow);
 }
 
+.form-group {
+  margin-bottom: 16px;
+}
+
+.input-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--theme-text);
+  margin-bottom: 6px;
+  opacity: 0.8;
+}
+
 .button {
   background: linear-gradient(135deg, var(--theme-color), var(--theme-dark));
   color: white;
@@ -2075,20 +2088,121 @@ body {
 .archetype-switch-btn {
   background: var(--theme-light);
   border: 2px solid transparent;
-  padding: 10px;
-  border-radius: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
   text-align: left;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .archetype-switch-btn:hover {
   border-color: var(--theme-color);
+  transform: translateY(-1px);
 }
 
 .archetype-switch-btn.active {
-  background: var(--theme-color);
+  background: linear-gradient(135deg, var(--theme-color), var(--theme-light));
   color: white;
+  border-color: var(--theme-color);
+}
+
+.archetype-switch-btn .archetype-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.archetype-switch-btn .archetype-actions {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.archetype-switch-btn:hover .archetype-actions {
+  opacity: 1;
+}
+
+.edit-archetype-btn,
+.remove-archetype-btn {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: inherit;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.edit-archetype-btn:hover {
+  background: rgba(255,255,255,0.4);
+  transform: scale(1.1);
+}
+
+.remove-archetype-btn:hover {
+  background: rgba(255,100,100,0.6);
+  transform: scale(1.1);
+}
+
+.archetype-card {
+  background: var(--theme-light);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.archetype-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.archetype-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.archetype-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.archetype-card-actions button {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.archetype-card-actions button:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.archetype-card-actions .delete-btn {
+  color: #ff6b6b;
+}
+
+.archetype-card-actions .delete-btn:hover {
+  background: rgba(255,107,107,0.2);
 }
 
 .identity-list {

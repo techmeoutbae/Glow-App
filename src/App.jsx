@@ -1061,7 +1061,7 @@ function GlowApp({ session }) {
     }
   }
 
-  async function addHabit(title, category) {
+  async function addHabit(title, category, archetypeId = null) {
     const habitTitle = title || newTask;
     const habitCategory = category || taskCategory;
     
@@ -1079,11 +1079,14 @@ function GlowApp({ session }) {
     try {
       const userId = session?.user?.id;
       
+      // Use provided archetypeId or fall back to active archetype
+      const selectedArchetypeId = archetypeId || activeArchetype?.id || null;
+      
       const insertData = {
         title: habitTitle,
         category: habitCategory,
         page: page,
-        archetype_id: activeArchetype?.id || null,
+        archetype_id: selectedArchetypeId,
         day: actualDay,
         days: [actualDay],
         identity_tags: mergedTags,
@@ -1462,6 +1465,7 @@ function GlowApp({ session }) {
         category: editingHabit.category,
         days: editingHabit.days,
         is_all_day: editingHabit.is_all_day,
+        archetype_id: editingHabit.archetype_id || null,
       })
       .eq("id", editingHabit.id);
     logError("tasks.update (editHabit)", result);
@@ -1846,26 +1850,31 @@ function GlowApp({ session }) {
                     className={`archetype-switch-btn ${activeArchetype?.id === arch.id ? 'active' : ''}`}
                     onClick={() => switchToArchetype(arch)}
                   >
-                    {arch.emoji} {arch.name}
-                    <button 
-                      className="edit-archetype-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        editArchetypeTemplate(arch);
-                      }}
-                      title="Edit template"
-                    >
-                      ✎
-                    </button>
-                    <button 
-                      className="remove-archetype-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeArchetype(arch);
-                      }}
-                    >
-                      ×
-                    </button>
+                    <span className="archetype-name">
+                      <span>{arch.emoji}</span>
+                      <span>{arch.name}</span>
+                    </span>
+                    <span className="archetype-actions">
+                      <button 
+                        className="edit-archetype-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          editArchetypeTemplate(arch);
+                        }}
+                        title="Edit template"
+                      >
+                        ✎
+                      </button>
+                      <button 
+                        className="remove-archetype-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeArchetype(arch);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </span>
                   </div>
                 ))
               ) : (
@@ -2335,54 +2344,76 @@ function GlowApp({ session }) {
             </div>
             <form onSubmit={saveEditHabit}>
               <div className="modal-content">
-                <label className="form-label">Habit Title</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={editingHabit.title}
-                  onChange={(e) => setEditingHabit({...editingHabit, title: e.target.value})}
-                  required
-                />
-                
-                <label className="form-label">Category</label>
-                <select
-                  className="input"
-                  value={editingHabit.category || 'Health'}
-                  onChange={(e) => setEditingHabit({...editingHabit, category: e.target.value})}
-                >
-                  {categoriesList.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-                
-                <label className="form-label">Days</label>
-                <div className="days-checkboxes">
-                  {days.filter(d => d !== "Today").map(day => (
-                    <label key={day} className="day-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={(typeof editingHabit.days === 'string' ? JSON.parse(editingHabit.days) : editingHabit.days)?.includes(day)}
-                        onChange={(e) => {
-                          const currentDays = typeof editingHabit.days === 'string' ? JSON.parse(editingHabit.days) : (editingHabit.days || []);
-                          const newDays = e.target.checked 
-                            ? [...currentDays, day]
-                            : currentDays.filter(d => d !== day);
-                          setEditingHabit({...editingHabit, days: newDays});
-                        }}
-                      />
-                      {day}
-                    </label>
-                  ))}
+                <div className="form-group">
+                  <label className="input-label">Habit Title</label>
+                  <input
+                    className="input"
+                    type="text"
+                    value={editingHabit.title}
+                    onChange={(e) => setEditingHabit({...editingHabit, title: e.target.value})}
+                    required
+                  />
                 </div>
                 
-                <label className="form-label checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={editingHabit.is_all_day || false}
-                    onChange={(e) => setEditingHabit({...editingHabit, is_all_day: e.target.checked})}
-                  />
-                  Show every day
-                </label>
+                <div className="form-group">
+                  <label className="input-label">Archetype</label>
+                  <select
+                    className="input"
+                    value={editingHabit.archetype_id || ''}
+                    onChange={(e) => setEditingHabit({...editingHabit, archetype_id: e.target.value || null})}
+                  >
+                    <option value="">No archetype</option>
+                    {adoptedArchetypes.map(arch => (
+                      <option key={arch.id} value={arch.id}>{arch.emoji} {arch.name}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="form-group">
+                  <label className="input-label">Category</label>
+                  <select
+                    className="input"
+                    value={editingHabit.category || 'Health'}
+                    onChange={(e) => setEditingHabit({...editingHabit, category: e.target.value})}
+                  >
+                    {categoriesList.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="form-group">
+                  <label className="input-label">Days</label>
+                  <div className="days-checkboxes">
+                    {days.filter(d => d !== "Today").map(day => (
+                      <label key={day} className="day-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={(typeof editingHabit.days === 'string' ? JSON.parse(editingHabit.days) : editingHabit.days)?.includes(day)}
+                          onChange={(e) => {
+                            const currentDays = typeof editingHabit.days === 'string' ? JSON.parse(editingHabit.days) : (editingHabit.days || []);
+                            const newDays = e.target.checked 
+                              ? [...currentDays, day]
+                              : currentDays.filter(d => d !== day);
+                            setEditingHabit({...editingHabit, days: newDays});
+                          }}
+                        />
+                        {day}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="form-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={editingHabit.is_all_day || false}
+                      onChange={(e) => setEditingHabit({...editingHabit, is_all_day: e.target.checked})}
+                    />
+                    Show every day
+                  </label>
+                </div>
                 
                 <button type="submit" className="button">Save Changes</button>
               </div>
@@ -2994,6 +3025,8 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
           categories={categoriesList}
           days={days}
           identityOptions={identityOptions}
+          archetypes={adoptedArchetypes}
+          activeArchetype={activeArchetype}
           onAddCategory={(name) => {
             if (!customCategories.includes(name) && !defaultCategories.includes(name)) {
               const updated = [...customCategories, name];
@@ -3008,15 +3041,16 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
 }
 
 // Add Habit Modal
-function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAddCategory }) {
+function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAddCategory, archetypes = [], activeArchetype = null }) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(categories[0]);
+  const [archetypeId, setArchetypeId] = useState(activeArchetype?.id || "");
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
 
   const handleSubmit = () => {
     if (!title.trim()) return;
-    onAdd(title, category);
+    onAdd(title, category, archetypeId);
   };
   
   const handleClose = () => {
@@ -3050,24 +3084,42 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
             value={title}
             onChange={e => setTitle(e.target.value)}
           />
-          <div className="category-select-wrapper">
+          <div className="form-group">
+            <label className="input-label">Archetype</label>
             <select 
               className="input"
-              name="habitCategory"
-              id="habitCategory"
-              value={category}
-              onChange={e => {
-                if (e.target.value === "__new__") {
-                  setShowNewCategory(true);
-                  setCategory(categories[0]);
-                } else {
-                  setCategory(e.target.value);
-                }
-              }}
+              name="habitArchetype"
+              id="habitArchetype"
+              value={archetypeId}
+              onChange={e => setArchetypeId(e.target.value)}
             >
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-              <option value="__new__">+ Add New Category</option>
+              <option value="">No archetype</option>
+              {archetypes.map(arch => (
+                <option key={arch.id} value={arch.id}>{arch.emoji} {arch.name}</option>
+              ))}
             </select>
+          </div>
+          <div className="form-group">
+            <label className="input-label">Category</label>
+            <div className="category-select-wrapper">
+              <select 
+                className="input"
+                name="habitCategory"
+                id="habitCategory"
+                value={category}
+                onChange={e => {
+                  if (e.target.value === "__new__") {
+                    setShowNewCategory(true);
+                    setCategory(categories[0]);
+                  } else {
+                    setCategory(e.target.value);
+                  }
+                }}
+              >
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="__new__">+ Add New Category</option>
+              </select>
+            </div>
           </div>
           {showNewCategory && (
             <div className="new-category-input">
