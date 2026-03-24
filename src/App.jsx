@@ -1174,17 +1174,18 @@ function GlowApp({ session }) {
         localStorage.setItem(completionKey, 'true');
         setLastCompletedType(isTodo ? 'todo' : 'habit');
         setShowGlowAnimation(true);
-        // Auto-close after 3 seconds
         setTimeout(() => setShowGlowAnimation(false), 3000);
       }
+      
+      // Immediately update glow score state
+      const newGlow = getTotalGlowPoints();
+      setTotalGlowPoints(newGlow);
       
       // Save daily average after toggling
       saveDailyAverage();
       
-      // Force re-render to update scores from localStorage
+      // Force re-render
       setRefreshKey(k => k + 1);
-      
-      // Update challenge refresh key to trigger challenge progress update
       setChallengeRefreshKey(k => k + 1);
     } catch (e) {
       console.error('Toggle task error:', e);
@@ -2273,7 +2274,7 @@ function GlowApp({ session }) {
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
             <span className="floating-glow-score">{totalGlowPoints}</span>
-            <span className="floating-glow-label">Total Glow</span>
+            <span className="floating-glow-label">Glow Score</span>
           </div>
         </div>
       ) : (
@@ -2541,7 +2542,7 @@ function GlowApp({ session }) {
             <div className="profile-stats">
               <div className="stat-card">
                 <span className="stat-value">{totalGlowPoints}</span>
-                <span className="stat-label">Total Glow</span>
+                <span className="stat-label">Glow Score</span>
               </div>
               <div className="stat-card">
                 <span className="stat-value">{getStreak()}</span>
