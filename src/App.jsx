@@ -340,6 +340,7 @@ function GlowApp({ session }) {
   const [archetypes, setArchetypes] = useState([]);
   const [userName, setUserName] = useState("");
   const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [friends, setFriends] = useState([]);
   
   // Main navigation: home, habits, insights, growth, community
   const [currentPage, setCurrentPage] = useState("home");
