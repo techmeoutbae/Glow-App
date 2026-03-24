@@ -411,13 +411,13 @@ function GlowApp({ session }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
   
-  // Glow score state - updates when tasks change
+  // Glow score state - updates when tasks or refreshKey change
   const [totalGlowPoints, setTotalGlowPoints] = useState(0);
   
-  // Update glow score whenever tasks load
+  // Update glow score whenever tasks load or refreshKey changes
   useEffect(() => {
     setTotalGlowPoints(getTotalGlowPoints());
-  }, [tasks, session?.user?.id]);
+  }, [tasks, refreshKey, session?.user?.id]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
