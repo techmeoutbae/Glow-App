@@ -2526,7 +2526,7 @@ function GlowApp({ session }) {
             
             <div className="profile-stats">
               <div className="stat-card">
-                <span className="stat-value">{totalGlowPoints}</span>
+                <span className="stat-value">{getTotalGlowPoints()}</span>
                 <span className="stat-label">Glow Score</span>
               </div>
               <div className="stat-card">
