@@ -640,7 +640,7 @@ function GlowApp({ session }) {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [session?.user?.id]);
 
   // Check for daily recap on app load
   useEffect(() => {
@@ -1300,7 +1300,7 @@ function GlowApp({ session }) {
   };
   
   // Share progress with accountability partner
-  const shareWithPartner = () => {
+  const shareWithPartner = async () => {
     const today = new Date().toISOString().split('T')[0];
     const partnerId = localStorage.getItem('accountabilityPartner');
     if (!partnerId) return;
@@ -1309,17 +1309,25 @@ function GlowApp({ session }) {
     const streak = 0;
     const weeklyGlow = getWeeklyAverage ? getWeeklyAverage() : 0;
     const goals = JSON.parse(localStorage.getItem('longTermGoals') || '[]');
+    const todayISO = new Date().toISOString().split('T')[0];
     
     const progressData = {
-      [today]: dailyAvg,
+      [todayISO]: dailyAvg,
       streak: streak,
       weeklyGlow: weeklyGlow,
       goals: goals,
       lastUpdated: new Date().toISOString()
     };
     
-    // Store locally for demo (in production, would sync to Supabase)
+    // Store locally
     localStorage.setItem(`partnerProgress_${session?.user?.id}`, JSON.stringify(progressData));
+    
+    // Also save to Supabase for partners to access
+    try {
+      await supabase.from('user_profiles').update({
+        partner_progress: progressData
+      }).eq('id', session?.user?.id);
+    } catch (e) { /* ignore */ }
   };
   
   // Share data when page loads and on changes
@@ -1327,7 +1335,7 @@ function GlowApp({ session }) {
     if (session?.user?.id) {
       shareWithPartner();
     }
-  }, [tasks, completionLogs]);
+  }, [tasks, completionLogs, session?.user?.id]);
 
   // Helper to check if task is completed today (uses localStorage)
   const isCompletedToday = (taskId) => {
@@ -2137,8 +2145,8 @@ function GlowApp({ session }) {
         <div className="floating-glow">
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
-            <span className="floating-glow-score">{getGlowScore()}</span>
-            <span className="floating-glow-label">Glow</span>
+            <span className="floating-glow-score">{getTotalGlowPoints()}</span>
+            <span className="floating-glow-label">Total Glow</span>
           </div>
         </div>
       ) : (
@@ -3346,7 +3354,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
     
     if (profile) {
       const today = new Date().toISOString().split('T')[0];
-      const partnerProgress = JSON.parse(localStorage.getItem(`partnerProgress_${partnerId}`) || '{}');
+      const partnerProgress = profile.partner_progress || {};
       setPartnersData(prev => ({
         ...prev,
         [partnerId]: {
@@ -3355,7 +3363,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
           streak: partnerProgress.streak || 0,
           weeklyGlow: partnerProgress.weeklyGlow || 0,
           goals: partnerProgress.goals || [],
-          lastActive: partnerProgress.lastActive || null
+          lastActive: partnerProgress.lastUpdated || null
         }
       }));
     }
@@ -3416,10 +3424,10 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
         .in('id', friendIds);
       setFriends(profiles || []);
       
-      // Load glow scores for friends
+      // Load glow scores for friends from Supabase
       const scores = {};
       profiles?.forEach(profile => {
-        const progress = JSON.parse(localStorage.getItem(`partnerProgress_${profile.id}`) || '{}');
+        const progress = profile.partner_progress || {};
         const today = new Date().toISOString().split('T')[0];
         scores[profile.id] = {
           todayProgress: progress[today] || 0,
