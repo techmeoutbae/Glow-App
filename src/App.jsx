@@ -94,24 +94,6 @@ export default function App() {
   return <GlowApp session={session} />;
 }
 
-const loadFriends = async () => {
-  if (!session?.user?.id) return;
-
-  const { data: friendsData, error } = await supabase
-    .from("friends")
-    .select("*")
-    .or(`user_id.eq.${session.user.id},friend_id.eq.${session.user.id}`)
-    .eq("status", "accepted");
-
-  if (error) {
-    console.error("Error loading friends:", error);
-    return;
-  }
-
-  setFriends(friendsData || []);
-};
-
-
 function OnboardingWelcome({ onNext, onSkip }) {
   return (
     <div className="onboarding-screen">
@@ -371,6 +353,11 @@ function GlowApp({ session }) {
   const [isAdopting, setIsAdopting] = useState(false);
   const [showGlowAnimation, setShowGlowAnimation] = useState(false);
   const [minimizeGlow, setMinimizeGlow] = useState(false);
+  const [lastCompletedType, setLastCompletedType] = useState(null);
+  
+  // Daily recap popup state
+  const [showDailyRecap, setShowDailyRecap] = useState(false);
+  const [recapData, setRecapData] = useState({ earned: 0, penalty: 0, total: 0 });
   
   // Edit habit state
   const [showEditHabit, setShowEditHabit] = useState(false);
@@ -381,13 +368,17 @@ function GlowApp({ session }) {
   const [templateHabits, setTemplateHabits] = useState([]);
   const [templateIdentities, setTemplateIdentities] = useState([]);
   
-  // Check for first-time users and show onboarding
+  // Check for first-time users and show onboarding (only when session changes and user is logged in)
   useEffect(() => {
-    const hasCompletedOnboarding = localStorage.getItem('hasCompletedOnboarding');
-    if (!hasCompletedOnboarding) {
-      setOnboardingStep('welcome');
+    if (session?.user?.id) {
+      const hasCompletedOnboarding = localStorage.getItem('hasCompletedOnboarding');
+      if (!hasCompletedOnboarding) {
+        setOnboardingStep('welcome');
+      } else {
+        setOnboardingStep(null);
+      }
     }
-  }, []);
+  }, [session]);
   
   // Tooltip state
   const [showTooltip, setShowTooltip] = useState(null);
@@ -407,9 +398,10 @@ function GlowApp({ session }) {
     const saved = localStorage.getItem('adoptedArchetypes');
     return saved ? JSON.parse(saved) : [];
   });
-  
+   
   // Force refresh after task toggle
   const [refreshKey, setRefreshKey] = useState(0);
+  const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
@@ -420,7 +412,27 @@ function GlowApp({ session }) {
     const saved = localStorage.getItem('customCategories');
     return saved ? JSON.parse(saved) : [];
   });
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [showAddCategory, setShowAddCategory] = useState(false);
   const categoriesList = [...defaultCategories, ...customCategories];
+  
+  const addCustomCategory = () => {
+    if (newCategoryName.trim() && !categoriesList.includes(newCategoryName.trim())) {
+      const updated = [...customCategories, newCategoryName.trim()];
+      setCustomCategories(updated);
+      localStorage.setItem('customCategories', JSON.stringify(updated));
+      setNewCategoryName("");
+      setShowAddCategory(false);
+    }
+  };
+  
+  const deleteCustomCategory = (cat) => {
+    const confirmed = confirm(`Delete category "${cat}"?`);
+    if (!confirmed) return;
+    const updated = customCategories.filter(c => c !== cat);
+    setCustomCategories(updated);
+    localStorage.setItem('customCategories', JSON.stringify(updated));
+  };
   
   // Category to Identity mapping
   const defaultCategoryIdentities = {
@@ -436,6 +448,24 @@ function GlowApp({ session }) {
     const saved = localStorage.getItem('categoryIdentities');
     return saved ? JSON.parse(saved) : defaultCategoryIdentities;
   });
+  
+  // All possible identities that can be adopted
+  const allPossibleIdentities = [
+    // Health
+    'HEALTHY', 'FIT', 'STRONG', 'ENERGETIC', 'VIBRANT', 'NOURISHED', 'VITALITY', 'ACTIVE', 'WELL',
+    // Mindset
+    'GROWTH', 'MINDFUL', 'AWARE', 'PRESENT', 'FOCUSED', 'DISCIPLINED', 'CONSISTENT', 'DETERMINED', 'RESILIENT', 'GRATEFUL', 'POSITIVE', 'OPTIMISTIC', 'BRAVE', 'CALM', 'PEACEFUL',
+    // Beauty
+    'BEAUTIFUL', 'RADIANT', 'GLOWING', 'CONFIDENT', 'CARED_FOR',
+    // Career
+    'SUCCESSFUL', 'ACHIEVER', 'DRIVEN', 'AMBITION', 'PROFESSIONAL', 'EXCELLENT', 'TOP_PERFORMER', 'STRATEGIC', 'INNOVATIVE', 'CREATIVE',
+    // Finances
+    'WEALTHY', 'FINANCIALLY WISE', 'ABUNDANT', 'PROSPEROUS', 'MONEY_CONSCIOUS', 'FINANCIALLY FREE',
+    // Relationships
+    'LOVING', 'CONNECTED', 'SUPPORTIVE', 'COMPASSIONATE', 'HARMONIOUS', 'SOCIABLE',
+    // Spirituality
+    'SPIRITUAL', 'GROUNDED', 'INTUITIVE', 'CENTERED', 'WHOLE', 'INTEGRATED', 'PURPOSEFUL',
+  ];
   
   // Form states
   const [newTask, setNewTask] = useState("");
@@ -477,39 +507,80 @@ function GlowApp({ session }) {
 
   const days = ["Today", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   
-  // Midnight reset for daily habits
+  // Calculate end-of-day penalty for yesterday's incomplete tasks
+  const calculateEndOfDayPenalty = () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayISO = yesterday.toISOString().split('T')[0];
+    const yesterdayName = yesterday.toLocaleDateString('en-US', { weekday: 'long' });
+    
+    // Check if penalty already calculated for yesterday
+    const penalties = JSON.parse(localStorage.getItem('dailyPenalties') || '{}');
+    if (penalties[yesterdayISO] !== undefined) return penalties[yesterdayISO];
+    
+    // Count incomplete habits from yesterday
+    const yesterdayTasks = tasks.filter(t => {
+      if (t.is_all_day) return true;
+      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+      return taskDays?.includes(yesterdayName);
+    });
+    
+    let incompleteCount = 0;
+    yesterdayTasks.forEach(t => {
+      const completed = localStorage.getItem(`task_completed_${yesterdayISO}_${t.id}`) === 'true';
+      if (!completed) incompleteCount++;
+    });
+    
+    // Count incomplete todos from yesterday
+    const yesterdayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${yesterdayISO}`) || '[]');
+    const incompleteTodos = yesterdayTodos.filter(t => !t.completed).length;
+    incompleteCount += incompleteTodos;
+    
+    // Calculate penalty: -1 for each incomplete
+    const penalty = -incompleteCount;
+    
+    // Store penalty
+    penalties[yesterdayISO] = penalty;
+    localStorage.setItem('dailyPenalties', JSON.stringify(penalties));
+    
+    return penalty;
+  };
+  
+  // Get penalty for a specific day
+  const getDayPenalty = (dateISO) => {
+    const penalties = JSON.parse(localStorage.getItem('dailyPenalties') || '{}');
+    return penalties[dateISO] || 0;
+  };
+  
+  // Midnight reset - runs at user's local midnight (12 AM)
   useEffect(() => {
     const checkMidnight = () => {
       const now = new Date();
       const today = now.toDateString();
       const lastReset = localStorage.getItem('lastResetDate');
-      const currentHour = now.getHours();
       
-      // Only reset between 12am and 1am to prevent accidental resets
-      if (currentHour >= 0 && currentHour < 1 && lastReset !== today) {
-        const resetDailyHabits = async () => {
-          const { data: tasks } = await supabase.from("tasks").select("id, is_all_day");
-          if (tasks) {
-            for (const task of tasks) {
-              if (!task.is_all_day) {
-                await supabase.from("tasks").update({ completed: false }).eq("id", task.id);
-              }
-            }
-          }
-          localStorage.setItem('lastResetDate', today);
-          loadData();
-        };
-        resetDailyHabits();
+      // Reset at midnight (when date changes)
+      if (lastReset !== today) {
+        // Calculate penalty for yesterday before resetting
+        calculateEndOfDayPenalty();
+        
+        localStorage.setItem('lastResetDate', today);
+        
+        // Trigger re-render to refresh all daily data
+        setRefreshKey(k => k + 1);
+        
+        // Reload data from Supabase
+        loadData();
       }
     };
     
-    // Check immediately
+    // Check immediately on load
     checkMidnight();
     
-    // Check every minute
+    // Set up interval to check every minute
     const interval = setInterval(checkMidnight, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadData]);
   
   // Helper to safely parse days JSON
   const parseDays = (daysValue) => {
@@ -570,6 +641,63 @@ function GlowApp({ session }) {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Check for daily recap on app load
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    
+    const lastRecapDate = localStorage.getItem('lastRecapDate');
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Show recap only once per day (when it's a new day)
+    if (lastRecapDate && lastRecapDate !== today) {
+      // Calculate yesterday's stats
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayISO = yesterday.toISOString().split('T')[0];
+      const yesterdayName = yesterday.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get yesterday's completed tasks
+      const yesterdayTasks = tasks.filter(t => {
+        if (t.is_all_day) return true;
+        const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+        return taskDays?.includes(yesterdayName);
+      });
+      
+      const completedCount = yesterdayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${yesterdayISO}_${t.id}`) === 'true'
+      ).length;
+      
+      // Get yesterday's todos
+      const yesterdayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${yesterdayISO}`) || '[]');
+      const completedTodos = yesterdayTodos.filter(t => t.completed).length;
+      
+      // Calculate earned points
+      const earned = (completedCount * 3) + completedTodos;
+      if (completedCount === yesterdayTasks.length && yesterdayTasks.length > 0) {
+        earned + 25;
+      }
+      const earnedPoints = (completedCount * 3) + completedTodos + (completedCount === yesterdayTasks.length && yesterdayTasks.length > 0 ? 25 : 0);
+      
+      // Get penalty
+      const penalties = JSON.parse(localStorage.getItem('dailyPenalties') || '{}');
+      const penalty = Math.abs(penalties[yesterdayISO] || 0);
+      
+      // Only show if there was activity yesterday
+      if (yesterdayTasks.length > 0 || yesterdayTodos.length > 0) {
+        setRecapData({
+          earned: earnedPoints,
+          penalty: penalty,
+          total: earnedPoints - penalty
+        });
+        setShowDailyRecap(true);
+      }
+      
+      localStorage.setItem('lastRecapDate', today);
+    } else if (!lastRecapDate) {
+      localStorage.setItem('lastRecapDate', today);
+    }
+  }, [session, tasks]);
 
   useEffect(() => {
     // Only auto-show onboarding on initial load, not when switching archetypes
@@ -696,10 +824,9 @@ function GlowApp({ session }) {
         .select("*")
         .order("created_at", { ascending: true });
       
-      if (userId && adoptedArchetypes.length > 0) {
-        // Get adopted archetype IDs
-        const adoptedIds = adoptedArchetypes.map(a => a.id);
-        identitiesQuery = identitiesQuery.or(`user_id.eq.${userId},archetype_id.in.(${adoptedIds.join(',')})`);
+      if (userId) {
+        // ONLY load identities belonging to the current user
+        identitiesQuery = identitiesQuery.eq('user_id', userId);
       }
       
       const result = await identitiesQuery;
@@ -716,7 +843,13 @@ function GlowApp({ session }) {
 
   async function adoptArchetype(archetype) {
     setSelectedArchetype(archetype);
-    setTemplateHabits(archetype.template_habits || []);
+    setTemplateHabits(arch.template_habits || []);
+    // Set default identities from archetype
+    if (arch.default_identities && arch.default_identities.length > 0) {
+      setTemplateIdentities(arch.default_identities.map(name => ({ name, emoji: '✨' })));
+    } else {
+      setTemplateIdentities([]);
+    }
     setShowArchetypeModal(false);
     setOnboardingStep('template');
   }
@@ -785,6 +918,34 @@ function GlowApp({ session }) {
       ...templateIdentities.map(i => i.name)
     ];
     
+    console.log("Creating identities:", { 
+      defaultIdentities: selectedArchetype.default_identities,
+      templateIdentities: templateIdentities.map(i => i.name),
+      allIdentityNames 
+    });
+    
+    // If no identities to create, skip
+    if (allIdentityNames.length === 0) {
+      console.log("No identities to create");
+    }
+    
+    // Category mapping for identities
+    const identityCategories = {
+      'HEALTHY': 'Health', 'FIT': 'Health', 'STRONG': 'Health', 'ENERGETIC': 'Health',
+      'VIBRANT': 'Health', 'NOURISHED': 'Health', 'VITALITY': 'Health', 'ACTIVE': 'Health',
+      'GROWTH': 'Mindset', 'MINDFUL': 'Mindset', 'AWARE': 'Mindset', 'PRESENT': 'Mindset',
+      'FOCUSED': 'Mindset', 'DISCIPLINED': 'Mindset', 'CONSISTENT': 'Mindset',
+      'GRATEFUL': 'Mindset', 'POSITIVE': 'Mindset', 'RESILIENT': 'Mindset',
+      'BEAUTIFUL': 'Beauty', 'RADIANT': 'Beauty', 'GLOWING': 'Beauty', 'CARED_FOR': 'Beauty',
+      'SUCCESSFUL': 'Career', 'ACHIEVER': 'Career', 'DRIVEN': 'Career', 'AMBITION': 'Career',
+      'PROFESSIONAL': 'Career', 'EXCELLENT': 'Career', 'INNOVATIVE': 'Career',
+      'WEALTHY': 'Finances', 'FINANCIALLY WISE': 'Finances', 'ABUNDANT': 'Finances',
+      'PROSPEROUS': 'Finances', 'FINANCIALLY FREE': 'Finances',
+      'LOVING': 'Relationships', 'CONNECTED': 'Relationships', 'SUPPORTIVE': 'Relationships',
+      'COMPASSIONATE': 'Relationships', 'HARMONIOUS': 'Relationships',
+      'SPIRITUAL': 'Spirituality', 'GROUNDED': 'Spirituality', 'PEACEFUL': 'Spirituality',
+    };
+    
     for (const identityName of allIdentityNames) {
       // Check if identity already exists for this user AND archetype
       const { data: existing } = await supabase
@@ -798,11 +959,13 @@ function GlowApp({ session }) {
       if (existing) {
         createdIdentities.push(existing);
       } else {
+        const category = identityCategories[identityName.toUpperCase()] || 'Mindset';
         const result = await supabase.from("identities").insert({
           name: identityName,
           emoji: identityEmojis[identityName] || '✨',
           user_id: userId,
           archetype_id: selectedArchetype.id,
+          category: category,
         }).select().single();
         logError("identities.insert", result);
 
@@ -937,22 +1100,6 @@ function GlowApp({ session }) {
       alert("Error: " + e.message);
     }
   }
-  const loadFriends = async () => {
-  if (!session?.user?.id) return;
-
-  const { data: friendsData, error } = await supabase
-    .from('friends')
-    .select('*')
-    .or(`user_id.eq.${session.user.id},friend_id.eq.${session.user.id}`)
-    .eq('status', 'accepted');
-
-  if (error) {
-    console.error("Error loading friends:", error);
-    return;
-  }
-
-  setFriends(friendsData || []);
-};
 
   async function saveUserName() {
     if (!session?.user?.id || !userName.trim()) return;
@@ -961,10 +1108,9 @@ function GlowApp({ session }) {
       name: userName.trim(),
     }, { onConflict: 'id' });
     setShowProfileEdit(false);
-    loadFriends();
   }
 
-  async function toggleTask(id, completed, task = null, date = null) {
+  async function toggleTask(id, completed, task = null, date = null, isTodo = false) {
     try {
       const today = date || new Date().toISOString().split('T')[0];
       const completionKey = `task_completed_${today}_${id}`;
@@ -973,6 +1119,7 @@ function GlowApp({ session }) {
         localStorage.removeItem(completionKey);
       } else {
         localStorage.setItem(completionKey, 'true');
+        setLastCompletedType(isTodo ? 'todo' : 'habit');
         setShowGlowAnimation(true);
         // Auto-close after 3 seconds
         setTimeout(() => setShowGlowAnimation(false), 3000);
@@ -983,6 +1130,9 @@ function GlowApp({ session }) {
       
       // Force re-render to update scores from localStorage
       setRefreshKey(k => k + 1);
+      
+      // Update challenge refresh key to trigger challenge progress update
+      setChallengeRefreshKey(k => k + 1);
     } catch (e) {
       console.error('Toggle task error:', e);
     }
@@ -1020,9 +1170,9 @@ function GlowApp({ session }) {
     return dailyAverage;
   }
   
-  // Calculate Glow Score: +3 per habit, +1 per todo, +25 bonus for 100%
+  // Calculate today's glow score: +3 per habit, +1 per todo, +25 bonus for 100%
   const getGlowScore = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const todayISO = new Date().toISOString().split('T')[0];
     const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     
     // Get today's habits
@@ -1034,66 +1184,122 @@ function GlowApp({ session }) {
     
     // Count completed habits
     const completedHabits = todayTasks.filter(t => 
-      localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true'
+      localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
     ).length;
     
     // Get today's todos
-    const todayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${today}`) || '[]');
+    const todayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${todayISO}`) || '[]');
     const completedTodos = todayTodos.filter(t => t.completed).length;
     
-    // Calculate base points
+    // Calculate base points: 3 per habit, 1 per todo
     let points = (completedHabits * 3) + completedTodos;
     
-    // Check if all habits completed for bonus
+    // Bonus for completing all habits
     if (todayTasks.length > 0 && completedHabits === todayTasks.length) {
-      points += 25; // Bonus for 100%
+      points += 25;
     }
     
     return points;
   };
-  
-  // Get total cumulative glow points
+   
+  // Get CUMULATIVE total glow points from signup to today
   const getTotalGlowPoints = () => {
-    const history = JSON.parse(localStorage.getItem('glowPointsHistory') || '{}');
-    const today = new Date().toISOString().split('T')[0];
+    const accountStartDate = localStorage.getItem('accountStartDate');
+    if (!accountStartDate) return 0;
     
-    // Add today's points to history
-    const todayPoints = getGlowScore();
-    history[today] = todayPoints;
+    const startDate = new Date(accountStartDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
-    // Calculate total
-    const total = Object.values(history).reduce((sum, val) => sum + val, 0);
+    let total = 0;
+    
+    // Loop through every day from signup to today
+    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+      const dayStr = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get tasks for this day
+      const dayTasks = tasks.filter(t => {
+        if (t.is_all_day) return true;
+        const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+        return taskDays?.includes(dayName);
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      // Count completed tasks
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      // Get todos
+      const dayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${dayStr}`) || '[]');
+      const completedTodos = dayTodos.filter(t => t.completed).length;
+      
+      // Calculate points for this day
+      let dayPoints = (completed * 3) + completedTodos;
+      if (completed === dayTasks.length) dayPoints += 25;
+      
+      // Add any penalty for incomplete tasks from previous day
+      const penalty = getDayPenalty(dayStr);
+      dayPoints += penalty;
+      
+      total += dayPoints;
+    }
+    
     return total;
   };
   
-  // Share progress with accountability partner
+  // Get streak - consecutive days with positive glow points
   const getStreak = () => {
-  const history = JSON.parse(localStorage.getItem('glowPointsHistory') || '{}');
-  const dates = Object.keys(history).sort().reverse();
-
-  let streak = 0;
-
-  for (let date of dates) {
-    if (history[date] > 0) {
-      streak++;
-    } else {
-      break;
+    const accountStartDate = localStorage.getItem('accountStartDate');
+    if (!accountStartDate) return 0;
+    
+    const startDate = new Date(accountStartDate);
+    const today = new Date();
+    
+    let streak = 0;
+    
+    // Check from today backwards
+    for (let d = new Date(today); d >= startDate; d.setDate(d.getDate() - 1)) {
+      const dayStr = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get tasks for this day
+      const dayTasks = tasks.filter(t => {
+        if (t.is_all_day) return true;
+        const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+        return taskDays?.includes(dayName);
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      // Check if all completed
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      if (completed === dayTasks.length) {
+        streak++;
+      } else if (dayStr !== today.toISOString().split('T')[0]) {
+        // Break if not today and not all completed
+        break;
+      }
     }
-  }
-
-  return streak;
-};
-
-const getWeeklyAverage = () => {
-  const history = JSON.parse(localStorage.getItem('glowPointsHistory') || '{}');
-  const values = Object.values(history).slice(-7);
-
-  if (values.length === 0) return 0;
-
-  const total = values.reduce((sum, v) => sum + v, 0);
-  return Math.round(total / values.length);
-};
-
+    
+    return streak;
+  };
+  
+  // Get weekly average glow points
+  const getWeeklyAverage = () => {
+    const history = JSON.parse(localStorage.getItem('glowPointsHistory') || '{}');
+    const values = Object.values(history).slice(-7);
+    if (values.length === 0) return 0;
+    const total = values.reduce((sum, v) => sum + v, 0);
+    return Math.round(total / values.length);
+  };
+  
+  // Share progress with accountability partner
   const shareWithPartner = () => {
     const today = new Date().toISOString().split('T')[0];
     const partnerId = localStorage.getItem('accountabilityPartner');
@@ -1298,6 +1504,7 @@ const getWeeklyAverage = () => {
     
     // Show glow animation when completing a todo
     if (todo && !todo.completed) {
+      setLastCompletedType('todo');
       setShowGlowAnimation(true);
       setTimeout(() => setShowGlowAnimation(false), 3000);
     }
@@ -1547,6 +1754,12 @@ const getWeeklyAverage = () => {
           onSelect={(arch) => {
             setSelectedArchetype(arch);
             setTemplateHabits(arch.template_habits || []);
+            // Set default identities from archetype
+            if (arch.default_identities && arch.default_identities.length > 0) {
+              setTemplateIdentities(arch.default_identities.map(name => ({ name, emoji: '✨' })));
+            } else {
+              setTemplateIdentities([]);
+            }
             setOnboardingStep('template');
           }}
           onBack={() => setOnboardingStep('welcome')}
@@ -1689,17 +1902,26 @@ const getWeeklyAverage = () => {
           <div className="settings-section">
             <h3>My Identities</h3>
             <p className="settings-hint">
-              {activeArchetype ? `Identities for ${activeArchetype.name}` : 'Select an archetype to view identities'}
+              {activeArchetype 
+                ? `Identities for ${activeArchetype.name}` 
+                : adoptedArchetypes.length > 0 
+                  ? 'All adopted identities' 
+                  : 'Select an archetype to view identities'
+              }
             </p>
-            {!activeArchetype ? (
-              <p className="empty-message">Select an archetype to see identities</p>
+            {adoptedArchetypes.length === 0 ? (
+              <p className="empty-message">Adopt an archetype to see identities</p>
             ) : (
               <div className="identity-list">
                 {(() => {
-                  // Filter by archetype and remove duplicates by name
-                  let filteredIdentities = activeArchetype 
-                    ? identities.filter(id => id.archetype_id === activeArchetype.id)
-                    : [];
+                  // Show identities from active archetype, OR all adopted if none selected
+                  let filteredIdentities = identities;
+                  if (activeArchetype) {
+                    filteredIdentities = identities.filter(id => id.archetype_id === activeArchetype.id);
+                  } else {
+                    const adoptedIds = adoptedArchetypes.map(a => a.id);
+                    filteredIdentities = identities.filter(id => adoptedIds.includes(id.archetype_id));
+                  }
                   
                   // Remove duplicates based on name
                   const seen = new Set();
@@ -1723,7 +1945,7 @@ const getWeeklyAverage = () => {
                       </div>
                     ))
                   ) : (
-                    <p className="empty-message">No identities for {activeArchetype.name}</p>
+                    <p className="empty-message">No identities yet</p>
                   );
                 })()}
               </div>
@@ -1732,42 +1954,64 @@ const getWeeklyAverage = () => {
 
           <div className="settings-section">
             <h3>Category Identities</h3>
-            <p className="settings-hint">Edit which identities are linked to each category</p>
-            {categoriesList.map(cat => (
-              <div key={cat} className="category-identity-mapping">
-                <span className="category-name">{cat}:</span>
-                <span className="category-identities">
-                  {(categoryIdentities[cat] || []).join(', ')}
-                </span>
+            <p className="settings-hint">Tap a category to edit linked identities</p>
+            <div className="category-chips-grid">
+              {categoriesList.map(cat => (
                 <button 
-                  className="edit-btn"
+                  key={cat}
+                  className="category-chip-btn"
                   onClick={() => setEditingCategoryIdentities(cat)}
-                >✎</button>
-              </div>
-            ))}
+                >
+                  <span className="chip-label">{cat}</span>
+                  <span className="chip-count">{(categoryIdentities[cat] || []).length} identities</span>
+                </button>
+              ))}
+            </div>
           </div>
           
           {editingCategoryIdentities && (
             <div className="modal-overlay" onClick={() => setEditingCategoryIdentities(null)}>
-              <div className="modal" onClick={e => e.stopPropagation()}>
+              <div className="modal identity-picker-modal" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
-                  <h2>Edit {editingCategoryIdentities} Identities</h2>
+                  <h2>{editingCategoryIdentities}</h2>
                   <button onClick={() => setEditingCategoryIdentities(null)}>×</button>
                 </div>
-                <div className="modal-content">
-                  <p>Enter identity names separated by commas:</p>
-                  <textarea
-                    className="input"
-                    value={(categoryIdentities[editingCategoryIdentities] || []).join(', ')}
-                    onChange={(e) => {
-                      const names = e.target.value.split(',').map(n => n.trim().toUpperCase().replace(/\s+/g, '_')).filter(Boolean);
-                      setCategoryIdentities({
-                        ...categoryIdentities,
-                        [editingCategoryIdentities]: names
+                <div className="modal-content identity-picker-content">
+                  <p className="modal-hint">Tap identities to link with this category:</p>
+                  <div className="identity-all-list">
+                    {(() => {
+                      const selectedIds = categoryIdentities[editingCategoryIdentities] || [];
+                      const sortedIdentities = [...allPossibleIdentities].sort((a, b) => {
+                        const aSelected = selectedIds.includes(a);
+                        const bSelected = selectedIds.includes(b);
+                        if (aSelected && !bSelected) return -1;
+                        if (!aSelected && bSelected) return 1;
+                        return 0;
                       });
-                    }}
-                    rows={4}
-                  />
+                      return sortedIdentities.map(idName => {
+                        const isSelected = selectedIds.includes(idName);
+                        return (
+                          <button 
+                            key={idName}
+                            className={`identity-pill ${isSelected ? 'selected' : ''}`}
+                            onClick={() => {
+                              const current = categoryIdentities[editingCategoryIdentities] || [];
+                              const updated = isSelected
+                                ? current.filter(n => n !== idName)
+                                : [...current, idName];
+                              setCategoryIdentities({
+                                ...categoryIdentities,
+                                [editingCategoryIdentities]: updated
+                              });
+                            }}
+                          >
+                            {getIdentityEmoji({ name: idName, emoji: null })} {idName}
+                            {isSelected && <span className="pill-check">✓</span>}
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
                   <button 
                     className="button" 
                     onClick={() => {
@@ -1775,12 +2019,49 @@ const getWeeklyAverage = () => {
                       setEditingCategoryIdentities(null);
                     }}
                   >
-                    Save
+                    Done
                   </button>
                 </div>
               </div>
             </div>
           )}
+
+          <div className="settings-section">
+            <h3>Custom Categories</h3>
+            <p className="settings-hint">Add your own categories (only visible to you)</p>
+            {customCategories.length > 0 && (
+              <div className="custom-category-list">
+                {customCategories.map(cat => (
+                  <div key={cat} className="custom-category-item">
+                    <span>{cat}</span>
+                    <button 
+                      className="custom-cat-delete"
+                      onClick={() => deleteCustomCategory(cat)}
+                      title="Delete category"
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {showAddCategory ? (
+              <div className="add-category-form">
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Category name"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  autoFocus
+                />
+                <button className="button" onClick={addCustomCategory}>Add</button>
+                <button className="button secondary" onClick={() => { setShowAddCategory(false); setNewCategoryName(""); }}>Cancel</button>
+              </div>
+            ) : (
+              <button className="button" onClick={() => setShowAddCategory(true)}>
+                + Add Category
+              </button>
+            )}
+          </div>
 
           <div className="settings-section">
             <h3>Help</h3>
@@ -1917,7 +2198,57 @@ const getWeeklyAverage = () => {
           <button className="glow-close-btn" onClick={(e) => { e.stopPropagation(); setShowGlowAnimation(false); }}>×</button>
           <div className="glow-burst">✨</div>
           <div className="glow-message">You're on a glow! ✨</div>
-          <div className="glow-points-added">+{getGlowScore() - (getGlowScore() > 3 ? 3 : 1)}</div>
+          <div className="glow-points-added">+{lastCompletedType === 'todo' ? '1' : '3'}</div>
+        </div>
+      )}
+
+      {/* Daily Recap Popup */}
+      {showDailyRecap && (
+        <div className="daily-recap-overlay" onClick={() => setShowDailyRecap(false)}>
+          <div className="daily-recap-card" onClick={e => e.stopPropagation()}>
+            <div className="recap-sparkles">
+              <span className="sparkle sparkle-1">✨</span>
+              <span className="sparkle sparkle-2">✨</span>
+              <span className="sparkle sparkle-3">✨</span>
+            </div>
+            <div className="recap-header">
+              <h2>🌅 Yesterday's Glow</h2>
+              <p className="recap-subtitle">Here's how you did!</p>
+            </div>
+            <div className="recap-stats">
+              <div className="recap-stat earned">
+                <span className="stat-icon">🎯</span>
+                <span className="stat-label">Points Earned</span>
+                <span className="stat-value">+{recapData.earned}</span>
+              </div>
+              {recapData.penalty > 0 && (
+                <div className="recap-stat penalty">
+                  <span className="stat-icon">💭</span>
+                  <span className="stat-label">Incomplete Tasks</span>
+                  <span className="stat-value">-{recapData.penalty}</span>
+                </div>
+              )}
+              <div className="recap-divider"></div>
+              <div className="recap-total">
+                <span className="total-label">Net Points</span>
+                <span className={`total-value ${recapData.total >= 0 ? 'positive' : 'negative'}`}>
+                  {recapData.total >= 0 ? '+' : ''}{recapData.total}
+                </span>
+              </div>
+            </div>
+            <div className="recap-message">
+              {recapData.total > 20 && "🌟 Amazing day! You're on fire!"}
+              {recapData.total > 0 && recapData.total <= 20 && "💪 Great job! Keep it up!"}
+              {recapData.total === 0 && "🌱 Every day is a fresh start!"}
+              {recapData.total < 0 && "🌙 Tomorrow is a new opportunity!"}
+            </div>
+            <button 
+              className="recap-close-btn"
+              onClick={() => setShowDailyRecap(false)}
+            >
+              Let's Glow Today! ✨
+            </button>
+          </div>
         </div>
       )}
 
@@ -2077,14 +2408,15 @@ const getWeeklyAverage = () => {
           completionLogs={completionLogs}
           categoriesList={categoriesList}
           activeArchetype={activeArchetype}
+          adoptedArchetypes={adoptedArchetypes}
           getIdentityEmoji={getIdentityEmoji}
         />
       )}
 
       {currentPage === "community" && (
-        <CommunityPage session={session} />
+        <CommunityPage session={session} tasks={tasks} challengeRefreshKey={challengeRefreshKey} />
       )}
-        </>
+      </>
       )}
       </div>
   );
@@ -2440,601 +2772,19 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
   );
 }
 
-
-  // Habits Page Component
-function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks, refreshKey }) {
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  const todayDate = new Date().toDateString();
-
-  const getDateForDay = (dayName) => {
-    const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
-    const targetDay = daysMap[dayName];
-    const todayObj = new Date();
-    const currentDay = todayObj.getDay();
-    const diff = (targetDay - currentDay + 7) % 7;
-    const result = new Date(todayObj);
-    result.setDate(todayObj.getDate() + diff);
-    return result.toISOString().split('T')[0];
-  };
-
-  const isCompletedOnDay = (taskId, dayName) => {
-    const dateStr = getDateForDay(dayName);
-    return localStorage.getItem(`task_completed_${dateStr}_${taskId}`) === 'true';
-  };
-
-  return (
-    <div className="habits-page">
-      <h1 className="title">Habits ✧</h1>
-      
-      {/* Archetype Selector with View All option */}
-      {adoptedArchetypes.length > 0 && (
-        <div className="archetype-selector">
-          <div
-            className={`archetype-chip ${showAllTasks ? 'active' : ''}`}
-            onClick={() => {
-              setShowAllTasks(true);
-              setActiveArchetype(null);
-            }}
-          >
-            ✨ View All
-          </div>
-          {adoptedArchetypes.map(arch => (
-            <div
-              key={arch.id}
-              className={`archetype-chip ${activeArchetype?.id === arch.id && !showAllTasks ? 'active' : ''}`}
-              onClick={() => {
-                setShowAllTasks(false);
-                setActiveArchetype(arch);
-              }}
-            >
-              {arch.emoji} {arch.name}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Day Selector */}
-      <div className="day-selector">
-        <select 
-          className="day-select"
-          value={expandedDay || ""}
-          onChange={(e) => setExpandedDay(e.target.value || null)}
-        >
-          <option value="">Weekly View</option>
-          {days.filter(d => d !== "Today").map(d => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
-        <button className="add-btn" onClick={() => setShowAddHabit(true)}>+ Add Habit</button>
-      </div>
-
-      {/* Weekly/Daily View */}
-      {!expandedDay ? (
-        <div className="calendar">
-          {days.filter(d => d !== "Today").map(day => {
-            const dayTasks = pageTasks.filter(t => {
-              const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
-              return t.is_all_day || !taskDays || taskDays.includes(day);
-            });
-            
-            const isToday = day === today;
-            const displayTasks = dayTasks.slice(0, 5);
-            const hasMore = dayTasks.length > 5;
-            
-            return (
-              <div key={day} className={`day-box ${isToday ? 'today' : ''}`} onClick={() => setExpandedDay(day)}>
-                {isToday && <span className="sparkle-icon">✨</span>}
-                <h3>{day}</h3>
-                <p className="day-progress">{dayTasks.length > 0 ? `${dayTasks.filter(t => isCompletedOnDay(t.id, day)).length}/${dayTasks.length}` : 'No habits'}</p>
-                {dayTasks.length > 0 ? (
-                  <div className="day-tasks-preview">
-                    {displayTasks.map(task => (
-                      <div key={task.id} className={`task-preview ${isCompletedOnDay(task.id, day) ? 'completed' : ''}`}>
-                        {task.title}
-                      </div>
-                    ))}
-                    {hasMore && <div className="more-tasks">+{dayTasks.length - 5} more</div>}
-                  </div>
-                ) : (
-                  <p className="empty-hint">Click to add habits</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="day-view">
-          <button className="back-btn" onClick={() => setExpandedDay(null)}>← Back</button>
-          <h2>{expandedDay} {expandedDay === today && <span className="sparkle-icon">✨</span>}</h2>
-          {(() => {
-            const dayTasks = pageTasks.filter(t => {
-              const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
-              return t.is_all_day || !taskDays || taskDays.includes(expandedDay);
-            });
-            
-            if (!dayTasks.length) return (
-              <div className="empty-state">
-                <p className="empty">No habits for {expandedDay}</p>
-                <button className="button" onClick={() => setShowAddHabit(true)}>+ Add a Habit</button>
-              </div>
-            );
-            
-            // Group tasks by category
-            const groupedTasks = {};
-            categoriesList.forEach(cat => {
-              groupedTasks[cat] = dayTasks.filter(t => t.category === cat);
-            });
-            // Add any tasks without a category
-            groupedTasks['Other'] = dayTasks.filter(t => !t.category || !categoriesList.includes(t.category));
-            
-            return (
-              <div className="tasks-by-category">
-                {Object.entries(groupedTasks).map(([category, tasks]) => {
-                  if (tasks.length === 0) return null;
-                  return (
-                    <div key={category} className="category-group">
-                      <h3 className="category-title">{category}</h3>
-                      {tasks.map(task => {
-                          const isCompleted = isCompletedOnDay(task.id, expandedDay);
-                          return (
-                        <div key={task.id} className={`task-row ${isCompleted ? 'completed' : ''}`}>
-                          <label className="task-label">
-                            <input
-                              type="checkbox"
-                              checked={isCompleted}
-                              onChange={() => onToggleTask(task.id, isCompleted, task, getDateForDay(expandedDay))}
-                            />
-                            <span className="task-text">{task.title}</span>
-                          </label>
-                          <div className="task-actions">
-                            <button className="edit-btn" onClick={() => onEditTask(task)}>✎</button>
-                            <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
-                          </div>
-                        </div>
-                      );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
-      {/* Add Habit Modal */}
-      {showAddHabit && (
-        <AddHabitModal 
-          onClose={() => setShowAddHabit(false)}
-          onAdd={onAddHabit}
-          categories={categoriesList}
-          days={days}
-          identityOptions={identityOptions}
-          onAddCategory={(name) => {
-            if (!customCategories.includes(name) && !defaultCategories.includes(name)) {
-              const updated = [...customCategories, name];
-              setCustomCategories(updated);
-              localStorage.setItem('customCategories', JSON.stringify(updated));
-            }
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-// Add Habit Modal
-function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAddCategory }) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(categories[0]);
-  const [showNewCategory, setShowNewCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
-
-  const handleSubmit = () => {
-    if (!title.trim()) return;
-    onAdd(title, category);
-  };
-  
-  const handleClose = () => {
-    setTitle("");
-    setCategory(categories[0]);
-    onClose();
-  };
-
-  const handleAddCategory = () => {
-    if (newCategoryName.trim() && onAddCategory) {
-      onAddCategory(newCategoryName.trim());
-      setNewCategoryName("");
-      setShowNewCategory(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={handleClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Add Habit</h2>
-          <button type="button" onClick={(e) => { e.stopPropagation(); handleClose(); }}>×</button>
-        </div>
-        <form className="modal-content" onSubmit={e => e.preventDefault()}>
-          <input
-            className="input"
-            name="habitTitle"
-            id="habitTitle"
-            placeholder="Habit title"
-            autoComplete="off"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-          />
-          <div className="category-select-wrapper">
-            <select 
-              className="input"
-              name="habitCategory"
-              id="habitCategory"
-              value={category}
-              onChange={e => {
-                if (e.target.value === "__new__") {
-                  setShowNewCategory(true);
-                  setCategory(categories[0]);
-                } else {
-                  setCategory(e.target.value);
-                }
-              }}
-            >
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-              <option value="__new__">+ Add New Category</option>
-            </select>
-          </div>
-          {showNewCategory && (
-            <div className="new-category-input">
-              <input
-                className="input"
-                name="newCategory"
-                id="newCategory"
-                placeholder="New category name"
-                autoComplete="off"
-                value={newCategoryName}
-                onChange={e => setNewCategoryName(e.target.value)}
-              />
-              <button type="button" className="button small" onClick={handleAddCategory}>Add</button>
-            </div>
-          )}
-          <button type="button" className="button" onClick={handleSubmit}>Add Habit</button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// Insights Page Component
-function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey }) {
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  
-  // Get or set account creation date
-  const getAccountStartDate = () => {
-    let startDate = localStorage.getItem('accountStartDate');
-    if (!startDate) {
-      startDate = new Date().toISOString().split('T')[0];
-      localStorage.setItem('accountStartDate', startDate);
-    }
-    return startDate;
-  };
-
-  // Save daily average to localStorage
-  const saveDailyAverage = () => {
-    const todayISO = new Date().toISOString().split('T')[0];
-    const dailyLogKey = `daily_average_${todayISO}`;
-    
-    // Calculate today's glow score
-    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
-    if (usedCategories.length === 0) return;
-    
-    let totalProgress = 0;
-    let categoryCount = 0;
-    
-    for (const category of usedCategories) {
-      const categoryTasks = tasks.filter(t => t.category === category);
-      if (categoryTasks.length > 0) {
-        const completed = categoryTasks.filter(t => 
-          localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
-        ).length;
-        totalProgress += (completed / categoryTasks.length) * 100;
-        categoryCount++;
-      }
-    }
-    
-    const dailyAverage = categoryCount > 0 ? Math.round(totalProgress / categoryCount) : 0;
-    
-    // Store today's average
-    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    history[todayISO] = dailyAverage;
-    localStorage.setItem('progressHistory', JSON.stringify(history));
-    
-    return dailyAverage;
-  };
-
-  // Calculate cumulative average - average of ALL days from signup to now
-  const getCumulativeAverage = () => {
-    const accountStartDate = localStorage.getItem('accountStartDate');
-    if (!accountStartDate) return 0;
-    
-    const startDate = new Date(accountStartDate);
-    const today = new Date();
-    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
-    if (usedCategories.length === 0) return 0;
-    
-    let totalProgress = 0;
-    let daysWithTasks = 0;
-    
-    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
-      const dayStr = d.toISOString().split('T')[0];
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
-      
-      const dayTasks = tasks.filter(t => {
-        if (!t.is_all_day) {
-          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
-          return taskDays?.includes(dayName);
-        }
-        return true;
-      });
-      
-      if (dayTasks.length === 0) continue;
-      
-      const completed = dayTasks.filter(t => 
-        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
-      ).length;
-      
-      totalProgress += (completed / dayTasks.length) * 100;
-      daysWithTasks++;
-    }
-    
-    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
-  };
-
-  // Calculate weekly average - average of ALL habits for current week
-  const getWeeklyAverage = () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + mondayOffset);
-    monday.setHours(0, 0, 0, 0);
-    
-    let totalProgress = 0;
-    let daysWithTasks = 0;
-    
-    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
-    if (usedCategories.length === 0) return 0;
-    
-    for (let i = 0; i < 7; i++) {
-      const dayDate = new Date(monday);
-      dayDate.setDate(monday.getDate() + i);
-      
-      if (dayDate > today) continue;
-      
-      const dayStr = dayDate.toISOString().split('T')[0];
-      const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
-      
-      const dayTasks = tasks.filter(t => {
-        if (!t.is_all_day) {
-          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
-          return taskDays?.includes(dayName);
-        }
-        return true;
-      });
-      
-      if (dayTasks.length === 0) continue;
-      
-      const completed = dayTasks.filter(t => 
-        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
-      ).length;
-      
-      totalProgress += (completed / dayTasks.length) * 100;
-      daysWithTasks++;
-    }
-    
-    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
-  };
-
-  // Calculate monthly average (last 30 days)
-  const getMonthlyAverage = () => {
-    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    const today = new Date();
-    let total = 0;
-    let count = 0;
-    
-    for (let i = 0; i < 30; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      if (history[dateStr] !== undefined) {
-        total += history[dateStr];
-        count++;
-      }
-    }
-    
-    return count > 0 ? Math.round(total / count) : 0;
-  };
-
-  // Save today's average when page loads
-  useEffect(() => {
-    saveDailyAverage();
-  }, [tasks]);
-
-  // Calculate category progress for today (0-100)
-  const getCategoryProgress = (category) => {
-    const todayISO = new Date().toISOString().split('T')[0];
-    const categoryTasks = tasks.filter(t => {
-      if (t.category !== category) return false;
-      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
-      return taskDays?.includes(today) || t.is_all_day;
-    });
-    if (categoryTasks.length === 0) return 0;
-    const completed = categoryTasks.filter(t => 
-      localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
-    ).length;
-    return Math.round((completed / categoryTasks.length) * 100);
-  };
-
-  // Get used categories
-  const getUsedCategories = () => {
-    const usedCategories = new Set(tasks.map(t => t.category).filter(Boolean));
-    return categoriesList.filter(c => usedCategories.has(c));
-  };
-
-  // Glow score is average of ALL used categories (including 0s)
-  const glowScore = () => {
-    const usedCategories = getUsedCategories();
-    if (usedCategories.length === 0) return 0;
-    const progress = usedCategories.map(c => getCategoryProgress(c));
-    return Math.round(progress.reduce((a, b) => a + b, 0) / progress.length);
-  };
-
-  // Get time period for category view
-  const [categoryTimePeriod, setCategoryTimePeriod] = useState('today');
-
-  // Get category progress based on time period
-  const getCategoryProgressByPeriod = (category, period) => {
-    const today = new Date();
-    const todayISO = today.toISOString().split('T')[0];
-    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    
-    const categoryTasks = tasks.filter(t => t.category === category);
-    if (categoryTasks.length === 0) return 0;
-    
-    if (period === 'today') {
-      const completed = categoryTasks.filter(t => 
-        localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
-      ).length;
-      return Math.round((completed / categoryTasks.length) * 100);
-    }
-    
-    // For week/month/all - average of stored daily category averages
-    let total = 0;
-    let count = 0;
-    const days = period === 'week' ? 7 : period === 'month' ? 30 : 365;
-    
-    for (let i = 0; i < days; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const categoryKey = `category_${category}_${dateStr}`;
-      if (history[categoryKey] !== undefined) {
-        total += history[categoryKey];
-        count++;
-      }
-    }
-    
-    return count > 0 ? Math.round(total / count) : 0;
-  };
-
-  // Save daily average and category averages when toggling
-  useEffect(() => {
-    const saveCategoryAverages = () => {
-      const todayISO = new Date().toISOString().split('T')[0];
-      const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
-      if (usedCategories.length === 0) return;
-      
-      const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-      
-      for (const category of usedCategories) {
-        const categoryTasks = tasks.filter(t => t.category === category);
-        if (categoryTasks.length > 0) {
-          const completed = categoryTasks.filter(t => 
-            localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
-          ).length;
-          const categoryAvg = Math.round((completed / categoryTasks.length) * 100);
-          history[`category_${category}_${todayISO}`] = categoryAvg;
-        }
-      }
-      
-      localStorage.setItem('progressHistory', JSON.stringify(history));
-    };
-    
-    saveCategoryAverages();
-  }, [tasks, refreshKey]);
-
-  const cumulativeAvg = getCumulativeAverage();
-  const weeklyAvg = getWeeklyAverage();
-  const monthlyAvg = getMonthlyAverage();
-
-  return (
-    <div className="insights-page">
-      <h1 className="title">Insights ✧</h1>
-      
-      <div className="insights-section">
-        <h2>Average Glow</h2>
-        <div className="averages-grid">
-          <div className="average-card">
-            <span className="average-label">Today</span>
-            <span className="average-value">{cumulativeAvg > 0 ? cumulativeAvg : glowScore()}%</span>
-          </div>
-          <div className="average-card">
-            <span className="average-label">Week</span>
-            <span className="average-value">{weeklyAvg}%</span>
-          </div>
-          <div className="average-card">
-            <span className="average-label">Month</span>
-            <span className="average-value">{monthlyAvg}%</span>
-          </div>
-          <div className="average-card">
-            <span className="average-label">All Time</span>
-            <span className="average-value">{cumulativeAvg}%</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="insights-section">
-        <div className="category-time-selector">
-          <span 
-            className={`time-chip ${categoryTimePeriod === 'today' ? 'active' : ''}`}
-            onClick={() => setCategoryTimePeriod('today')}
-          >Today</span>
-          <span 
-            className={`time-chip ${categoryTimePeriod === 'week' ? 'active' : ''}`}
-            onClick={() => setCategoryTimePeriod('week')}
-          >Week</span>
-          <span 
-            className={`time-chip ${categoryTimePeriod === 'month' ? 'active' : ''}`}
-            onClick={() => setCategoryTimePeriod('month')}
-          >Month</span>
-          <span 
-            className={`time-chip ${categoryTimePeriod === 'all' ? 'active' : ''}`}
-            onClick={() => setCategoryTimePeriod('all')}
-          >All Time</span>
-        </div>
-        <h2>Category Progress</h2>
-        {categoriesList.map(cat => {
-          const progress = getCategoryProgressByPeriod(cat, categoryTimePeriod);
-          return (
-          <div key={cat} className="category-progress">
-            <div className="category-header">
-              <span>{cat}</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="progress-bar">
-              <div 
-                className="progress-fill" 
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // Growth Page Component
-function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, getIdentityEmoji }) {
-  // Filter identities - only show when an archetype is selected, remove duplicates
-  let displayIdentities = activeArchetype 
-    ? identities.filter(id => id.archetype_id === activeArchetype.id)
-    : [];
+function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, adoptedArchetypes, getIdentityEmoji }) {
+  let displayIdentities = identities;
   
-  // Remove duplicates based on name
+  if (activeArchetype) {
+    displayIdentities = identities.filter(id => id.archetype_id === activeArchetype.id);
+  } else if (adoptedArchetypes?.length > 0) {
+    const adoptedIds = adoptedArchetypes.map(a => a.id);
+    displayIdentities = identities.filter(id => adoptedIds.includes(id.archetype_id));
+  } else {
+    displayIdentities = [];
+  }
+  
   const seen = new Set();
   displayIdentities = displayIdentities.filter(id => {
     const key = id.name?.toUpperCase();
@@ -3042,7 +2792,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
     seen.add(key);
     return true;
   });
-  
+
   const [showAddGoal, setShowAddGoal] = useState(false);
   const [goals, setGoals] = useState(() => {
     const saved = localStorage.getItem('longTermGoals');
@@ -3050,7 +2800,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
   });
   const [newGoal, setNewGoal] = useState({ title: '', category: 'Health', timeframe: '3m' });
   const [editingGoal, setEditingGoal] = useState(null);
-  
+
   const timeframes = [
     { value: '3m', label: '3 Months' },
     { value: '6m', label: '6 Months' },
@@ -3058,7 +2808,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
     { value: '3y', label: '3 Years' },
     { value: '5y', label: '5 Years' },
   ];
-  
+
   const addGoal = (e) => {
     e.preventDefault();
     if (!newGoal.title.trim()) return;
@@ -3074,7 +2824,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
     setNewGoal({ title: '', category: 'Health', timeframe: '3m' });
     setShowAddGoal(false);
   };
-  
+
   const deleteGoal = (id) => {
     const confirmed = confirm('Delete this goal?');
     if (!confirmed) return;
@@ -3082,7 +2832,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
     setGoals(updatedGoals);
     localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
   };
-  
+
   const saveGoalEdit = (goalId, field, value) => {
     const updatedGoals = goals.map(g => 
       g.id === goalId ? { ...g, [field]: value } : g
@@ -3090,13 +2840,29 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
     setGoals(updatedGoals);
     localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
   };
-  
-  // Calculate identity progress scores
-  const getIdentityProgress = (identityId) => {
-    const logs = completionLogs.filter(l => l.identity_id === identityId);
-    return logs.length;
+
+  const getIdentityProgress = (identityId, identityName) => {
+    const todayISO = new Date().toISOString().split('T')[0];
+    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    
+    const completedWithIdentity = tasks.filter(t => {
+      if (t.is_all_day) return true;
+      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+      if (!taskDays?.includes(todayName)) return false;
+      return localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true';
+    }).filter(t => {
+      const tags = t.identity_tags || [];
+      return tags.some(tag => {
+        if (typeof tag === 'string') {
+          return tag === identityId || tag.toUpperCase().includes(identityName?.toUpperCase());
+        }
+        return tag === identityId || tag.name?.toUpperCase().includes(identityName?.toUpperCase());
+      });
+    });
+    
+    return completedWithIdentity.length;
   };
-  
+
   return (
     <div className="growth-page">
       <h1 className="title">Growth ✧</h1>
@@ -3175,21 +2941,16 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
                     <button className="button" onClick={() => setEditingGoal(null)}>Done</button>
                   </div>
                 ) : (
-                  <>
+                  <div className="goal-view">
                     <div className="goal-info">
-                      <span className="goal-title">{goal.title}</span>
-                      <div className="goal-meta">
-                        <span className="goal-category">{goal.category}</span>
-                        <span className="goal-timeframe">
-                          {timeframes.find(tf => tf.value === goal.timeframe)?.label}
-                        </span>
-                      </div>
+                      <span className="goal-category">{goal.category}</span>
+                      <span className="goal-timeframe">{goal.timeframe}</span>
                     </div>
                     <div className="goal-actions">
-                      <button className="edit-btn" onClick={() => setEditingGoal(goal.id)}>✎</button>
-                      <button className="delete-btn" onClick={() => deleteGoal(goal.id)}>×</button>
+                      <button className="goal-edit-btn" onClick={() => setEditingGoal(goal.id)}>Edit</button>
+                      <button className="goal-delete-btn" onClick={() => deleteGoal(goal.id)}>×</button>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             ))}
@@ -3210,7 +2971,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
         ) : (
           <div className="identities-progress">
             {displayIdentities.map(id => {
-              const progress = getIdentityProgress(id.id);
+              const progress = getIdentityProgress(id.id, id.name);
               return (
                 <div key={id.id} className="identity-progress-item">
                   <div className="identity-info">
@@ -3232,7 +2993,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
 }
 
 // Community Page Component
-function CommunityPage({ session }) {
+function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   const [activeTab, setActiveTab] = useState('friends');
   const [friends, setFriends] = useState([]);
   const [friendEmail, setFriendEmail] = useState('');
@@ -3241,19 +3002,398 @@ function CommunityPage({ session }) {
   const [joinedChallenges, setJoinedChallenges] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
   const [showJoinChallenge, setShowJoinChallenge] = useState(null);
+  const [challengeProgress, setChallengeProgress] = useState({});
+  const [selectedChallengeDetail, setSelectedChallengeDetail] = useState(null);
   
-  // Accountability partner state
-  const [accountabilityPartner, setAccountabilityPartner] = useState(() => {
-    return localStorage.getItem('accountabilityPartner') || null;
+  // Challenge keywords - what habits each challenge tracks
+  const challengeKeywords = {
+    'Hydration Goddess': ['drink', 'water', 'hydrate', 'hydration', 'h2o', 'fluids', 'bottle', 'glass of water'],
+    'Mindful Mornings': ['meditate', 'meditation', 'mindful', 'breath', 'breathing', 'prayer', 'gratitude', 'morning routine'],
+    'Fitness Glow': ['exercise', 'workout', 'gym', 'run', 'yoga', 'fitness', 'walk', 'stretch', 'training', 'cardio', 'weights'],
+    'Financial Glow': ['budget', 'save', 'saving', 'money', 'finance', 'invest', 'expense', 'track spending', 'financial'],
+    'Sleep Champion': ['sleep', 'bed', 'rest', 'night', 'sleeping', 'nap', 'snooze', 'tired'],
+    'Healthy Eating': ['eat', 'meal', 'food', 'veggies', 'vegetables', 'fruit', 'healthy', 'nutrition', 'diet', 'breakfast', 'lunch', 'dinner'],
+    'Digital Detox': ['phone', 'screen', 'social media', 'digital', 'device', 'unplug', 'no phone'],
+    'Step Master': ['walk', 'steps', 'step', 'hike', 'stairs', 'steps'],
+    'No Sugar': ['sugar', 'candy', 'sweet', 'dessert', 'chocolate', 'ice cream'],
+    'Self Care': ['self care', 'self-care', 'skincare', 'bath', 'spa', 'pamper', 'relax', 'treat yourself'],
+    'Journal Queen': ['journal', 'write', 'writing', 'diary', 'gratitude list', 'reflect']
+  };
+  
+  // Challenge duration in days
+  const challengeDurations = {
+    '7-Day Glow': 7,
+    '30-Day Glow Up': 30,
+    'Hydration Goddess': 7,
+    'Mindful Mornings': 7,
+    'Fitness Glow': 14,
+    'Financial Glow': 30,
+    'Sleep Champion': 14,
+    'Healthy Eating': 14,
+    'Digital Detox': 7,
+    'Step Master': 14,
+    'No Sugar': 7,
+    'Self Care': 7,
+    'Journal Queen': 14
+  };
+  
+  // Calculate days completed for streak challenges (7-Day, 30-Day)
+  const calculateDaysCompleted = (durationDays) => {
+    const completedDays = [];
+    const today = new Date();
+    
+    for (let i = 0; i < durationDays; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get habits for this day
+      const dayTasks = tasks.filter(t => {
+        if (t.is_all_day) return true;
+        const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days || [];
+        return taskDays.includes(dayName);
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      // Check if ALL habits completed
+      const allCompleted = dayTasks.every(t => 
+        localStorage.getItem(`task_completed_${dateStr}_${t.id}`) === 'true'
+      );
+      
+      if (allCompleted) {
+        completedDays.push(dateStr);
+      }
+    }
+    
+    return completedDays.length;
+  };
+  
+  // Calculate days completed for keyword-based challenges
+  const calculateKeywordDaysCompleted = (keywords, durationDays) => {
+    const completedDays = [];
+    const today = new Date();
+    
+    for (let i = 0; i < durationDays; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Get matching habits for this day
+      const dayTasks = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days || [];
+          if (!taskDays.includes(dayName)) return false;
+        }
+        if (keywords.length === 0) return false;
+        const titleLower = (t.title || '').toLowerCase();
+        return keywords.some(keyword => titleLower.includes(keyword.toLowerCase()));
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      // Check if ALL matching habits completed
+      const allCompleted = dayTasks.every(t => 
+        localStorage.getItem(`task_completed_${dateStr}_${t.id}`) === 'true'
+      );
+      
+      if (allCompleted) {
+        completedDays.push(dateStr);
+      }
+    }
+    
+    return completedDays.length;
+  };
+  
+  // Calculate challenge progress
+  const calculateChallengeProgress = (challengeTitle) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const keywords = challengeKeywords[challengeTitle] || [];
+    const duration = challengeDurations[challengeTitle] || 7;
+    
+    // Handle 7-Day and 30-Day Glow challenges
+    if (challengeTitle === '7-Day Glow' || challengeTitle === '30-Day Glow Up') {
+      const daysCompleted = calculateDaysCompleted(duration);
+      
+      return {
+        daysCompleted,
+        totalDays: duration,
+        percentage: Math.round((daysCompleted / duration) * 100),
+        isStreakChallenge: true
+      };
+    }
+    
+    // Keyword-based challenges (Hydration, Mindful, etc.)
+    const matchingHabits = tasks.filter(t => {
+      // Check if habit is for today
+      if (!t.is_all_day) {
+        const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days || [];
+        if (!taskDays.includes(todayName)) return false;
+      }
+      
+      // Check keyword match
+      if (keywords.length === 0) return false;
+      const titleLower = (t.title || '').toLowerCase();
+      return keywords.some(keyword => titleLower.includes(keyword.toLowerCase()));
+    });
+    
+    if (matchingHabits.length === 0) return null;
+    
+    const completedCount = matchingHabits.filter(t => 
+      localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true'
+    ).length;
+    
+    // Calculate days completed for keyword-based challenges
+    const daysCompleted = calculateKeywordDaysCompleted(keywords, duration);
+    
+    return {
+      total: matchingHabits.length,
+      completed: completedCount,
+      percentage: Math.round((completedCount / matchingHabits.length) * 100),
+      daysCompleted,
+      totalDays: duration,
+      isStreakChallenge: false
+    };
+  };
+  
+  // Get detailed challenge info including matching habits
+  const getChallengeDetails = (challenge) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const keywords = challengeKeywords[challenge.title] || [];
+    const isStreak = challenge.title === '7-Day Glow' || challenge.title === '30-Day Glow Up';
+    const duration = challengeDurations[challenge.title] || challenge.duration_days || 7;
+    
+    // Get matching habits for today
+    const matchingHabits = keywords.length > 0 
+      ? tasks.filter(t => {
+          if (!t.is_all_day) {
+            const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days || [];
+            if (!taskDays.includes(todayName)) return false;
+          }
+          const titleLower = (t.title || '').toLowerCase();
+          return keywords.some(k => titleLower.includes(k.toLowerCase()));
+        })
+      : [];
+    
+    // Calculate daily completion
+    let todayCompletion = 0;
+    let todayTotal = 0;
+    
+    if (isStreak) {
+      // For streak challenges, count all tasks
+      const allTasks = tasks.filter(t => {
+        if (t.is_all_day) return true;
+        const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days || [];
+        return taskDays.includes(todayName);
+      });
+      todayTotal = allTasks.length;
+      todayCompletion = allTasks.filter(t => 
+        localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true'
+      ).length;
+    } else if (keywords.length > 0) {
+      todayTotal = matchingHabits.length;
+      todayCompletion = matchingHabits.filter(t => 
+        localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true'
+      ).length;
+    }
+    
+    // Calculate day-by-day progress
+    const dayHistory = [];
+    for (let i = 0; i < duration; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      let dayTotal = 0;
+      let dayCompleted = 0;
+      
+      if (isStreak) {
+        // For streak challenges, count all tasks
+        const dayTasks = tasks.filter(t => {
+          if (t.is_all_day) return true;
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days || [];
+          return taskDays.includes(dayName);
+        });
+        dayTotal = dayTasks.length;
+        dayCompleted = dayTasks.filter(t => 
+          localStorage.getItem(`task_completed_${dateStr}_${t.id}`) === 'true'
+        ).length;
+      } else if (keywords.length > 0) {
+        // For keyword-based challenges, count only matching tasks
+        const dayTasks = tasks.filter(t => {
+          if (!t.is_all_day) {
+            const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days || [];
+            if (!taskDays.includes(dayName)) return false;
+          }
+          const titleLower = (t.title || '').toLowerCase();
+          return keywords.some(k => titleLower.includes(k.toLowerCase()));
+        });
+        dayTotal = dayTasks.length;
+        dayCompleted = dayTasks.filter(t => 
+          localStorage.getItem(`task_completed_${dateStr}_${t.id}`) === 'true'
+        ).length;
+      }
+      
+      dayHistory.push({
+        date: dateStr,
+        dayName: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        total: dayTotal,
+        completed: dayCompleted,
+        percentage: dayTotal > 0 ? Math.round((dayCompleted / dayTotal) * 100) : 0,
+        isToday: i === 0
+      });
+    }
+    
+    return {
+      keywords,
+      isStreak,
+      duration,
+      matchingHabits,
+      todayCompletion,
+      todayTotal,
+      dayHistory,
+      daysCompleted: challengeProgress[challenge.id]?.daysCompleted || 0
+    };
+  };
+  
+  // Update challenge progress when tasks change or when refresh is triggered
+  useEffect(() => {
+    const updateProgress = () => {
+      const progress = {};
+      challenges.forEach(c => {
+        const result = calculateChallengeProgress(c.title);
+        if (result !== null) {
+          progress[c.id] = result;
+        }
+      });
+      setChallengeProgress(progress);
+    };
+    
+    updateProgress();
+  }, [tasks, challenges, challengeRefreshKey]);
+  
+  // Debug: log challenge progress when it changes
+  useEffect(() => {
+    console.log('Challenge Progress Updated:', challengeProgress);
+  }, [challengeProgress]);
+  
+  // Accountability partners state (multiple)
+  const [accountabilityPartners, setAccountabilityPartners] = useState(() => {
+    const saved = localStorage.getItem('accountabilityPartners');
+    return saved ? JSON.parse(saved) : [];
   });
-  const [partnerData, setPartnerData] = useState(null);
+  const [partnersData, setPartnersData] = useState({});
   const [showPartnerSelect, setShowPartnerSelect] = useState(false);
+  
+  // Accountability groups
+  const [groups, setGroups] = useState([]);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState([]);
+  
+  // Share settings
+  const [shareSettings, setShareSettings] = useState(() => {
+    const saved = localStorage.getItem('shareSettings');
+    return saved ? JSON.parse(saved) : {
+      dailyProgress: true,
+      glowScores: true,
+      streakStatus: true,
+      longTermGoals: true,
+      challengeProgress: true
+    };
+  });
+  
+  // Nudges
+  const [nudges, setNudges] = useState([]);
+  const [nudgeCount, setNudgeCount] = useState(0);
+  
+  // Friend glow scores
+  const [friendGlowScores, setFriendGlowScores] = useState({});
 
+  // Auto-refresh for real-time updates
   useEffect(() => {
     loadFriends();
     loadChallenges();
     loadLeaderboard();
+    loadNudges();
+    
+    const refreshInterval = setInterval(() => {
+      loadFriends();
+      loadNudges();
+    }, 30000); // Refresh every 30 seconds
+    
+    return () => clearInterval(refreshInterval);
   }, []);
+
+  // Load partner data when partners change
+  useEffect(() => {
+    accountabilityPartners.forEach(partnerId => {
+      loadPartnerData(partnerId);
+    });
+  }, [accountabilityPartners]);
+
+  async function loadPartnerData(partnerId) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', partnerId)
+      .single();
+    
+    if (profile) {
+      const today = new Date().toISOString().split('T')[0];
+      const partnerProgress = JSON.parse(localStorage.getItem(`partnerProgress_${partnerId}`) || '{}');
+      setPartnersData(prev => ({
+        ...prev,
+        [partnerId]: {
+          ...profile,
+          todayProgress: partnerProgress[today] || 0,
+          streak: partnerProgress.streak || 0,
+          weeklyGlow: partnerProgress.weeklyGlow || 0,
+          goals: partnerProgress.goals || [],
+          lastActive: partnerProgress.lastActive || null
+        }
+      }));
+    }
+  }
+
+  async function loadNudges() {
+    if (!session?.user?.id) return;
+    
+    const { data: receivedNudges } = await supabase
+      .from('nudges')
+      .select('*')
+      .eq('to_user_id', session.user.id)
+      .eq('read', false)
+      .order('created_at', { ascending: false });
+    
+    if (receivedNudges?.length) {
+      setNudgeCount(receivedNudges.length);
+      setNudges(receivedNudges);
+    }
+  }
+
+  async function sendNudge(toUserId) {
+    if (!session?.user?.id) return;
+    
+    await supabase.from('nudges').insert({
+      from_user_id: session.user.id,
+      to_user_id: toUserId,
+      type: 'nudge',
+      read: false
+    });
+    
+    alert('Nudge sent! 👋');
+  }
+
+  async function clearNudge(nudgeId) {
+    await supabase.from('nudges').update({ read: true }).eq('id', nudgeId);
+    loadNudges();
+  }
 
   async function loadFriends() {
     if (!session?.user?.id) return;
@@ -3275,6 +3415,19 @@ function CommunityPage({ session }) {
         .select('*')
         .in('id', friendIds);
       setFriends(profiles || []);
+      
+      // Load glow scores for friends
+      const scores = {};
+      profiles?.forEach(profile => {
+        const progress = JSON.parse(localStorage.getItem(`partnerProgress_${profile.id}`) || '{}');
+        const today = new Date().toISOString().split('T')[0];
+        scores[profile.id] = {
+          todayProgress: progress[today] || 0,
+          streak: progress.streak || 0,
+          weeklyGlow: progress.weeklyGlow || 0
+        };
+      });
+      setFriendGlowScores(scores);
     }
     
     // Load pending requests
@@ -3291,28 +3444,6 @@ function CommunityPage({ session }) {
         .select('*')
         .in('id', requesterIds);
       setFriendRequests(profiles || []);
-    }
-    
-    // Load accountability partner data
-    if (accountabilityPartner) {
-      const { data: partnerProfile } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', accountabilityPartner)
-        .single();
-      
-      if (partnerProfile) {
-        // Load partner's progress data
-        const today = new Date().toISOString().split('T')[0];
-        const partnerProgress = JSON.parse(localStorage.getItem(`partnerProgress_${accountabilityPartner}`) || '{}');
-        setPartnerData({
-          ...partnerProfile,
-          todayProgress: partnerProgress[today] || 0,
-          streak: partnerProgress.streak || 0,
-          weeklyGlow: partnerProgress.weeklyGlow || 0,
-          goals: partnerProgress.goals || []
-        });
-      }
     }
   }
 
@@ -3481,9 +3612,71 @@ function CommunityPage({ session }) {
     loadChallenges();
   }
 
+  const togglePartner = (friendId) => {
+    const isPartner = accountabilityPartners.includes(friendId);
+    const updated = isPartner 
+      ? accountabilityPartners.filter(id => id !== friendId)
+      : [...accountabilityPartners, friendId];
+    setAccountabilityPartners(updated);
+    localStorage.setItem('accountabilityPartners', JSON.stringify(updated));
+  };
+
+  const createGroup = () => {
+    if (!newGroupName.trim() || selectedGroupMembers.length < 2) {
+      alert('Please enter a group name and select at least 2 members');
+      return;
+    }
+    const newGroup = {
+      id: Date.now(),
+      name: newGroupName.trim(),
+      members: [session.user.id, ...selectedGroupMembers],
+      createdAt: new Date().toISOString()
+    };
+    const updatedGroups = [...groups, newGroup];
+    setGroups(updatedGroups);
+    localStorage.setItem('accountabilityGroups', JSON.stringify(updatedGroups));
+    setNewGroupName('');
+    setSelectedGroupMembers([]);
+    setShowCreateGroup(false);
+  };
+
+  const deleteGroup = (groupId) => {
+    if (!confirm('Delete this group?')) return;
+    const updated = groups.filter(g => g.id !== groupId);
+    setGroups(updated);
+    localStorage.setItem('accountabilityGroups', JSON.stringify(updated));
+  };
+
+  const toggleGroupMember = (friendId) => {
+    const isSelected = selectedGroupMembers.includes(friendId);
+    setSelectedGroupMembers(
+      isSelected 
+        ? selectedGroupMembers.filter(id => id !== friendId)
+        : [...selectedGroupMembers, friendId]
+    );
+  };
+
+  const updateShareSetting = (key) => {
+    const updated = { ...shareSettings, [key]: !shareSettings[key] };
+    setShareSettings(updated);
+    localStorage.setItem('shareSettings', JSON.stringify(updated));
+  };
+
+  const nudgePartner = (partnerId) => {
+    sendNudge(partnerId);
+  };
+
   return (
     <div className="community-page">
       <h1 className="title">Glow Community ✧</h1>
+      
+      {/* Nudge notification banner */}
+      {nudgeCount > 0 && (
+        <div className="nudge-banner">
+          <span>👋 You have {nudgeCount} nudge{nudgeCount > 1 ? 's' : ''} waiting!</span>
+          <button onClick={() => setNudges([])}>View</button>
+        </div>
+      )}
       
       <div className="community-tabs">
         <span 
@@ -3493,7 +3686,12 @@ function CommunityPage({ session }) {
         <span 
           className={`tab ${activeTab === 'accountability' ? 'active' : ''}`}
           onClick={() => setActiveTab('accountability')}
-        >Accountability</span>
+        >
+          Accountability
+          {accountabilityPartners.length > 0 && (
+            <span className="tab-badge">{accountabilityPartners.length}</span>
+          )}
+        </span>
         <span 
           className={`tab ${activeTab === 'challenges' ? 'active' : ''}`}
           onClick={() => setActiveTab('challenges')}
@@ -3506,44 +3704,87 @@ function CommunityPage({ session }) {
 
       {activeTab === 'friends' && (
         <div className="community-section">
-          <h2>Add Friend</h2>
-          <div className="add-friend-form">
-            <input
-              className="input"
-              type="email"
-              name="friendEmail"
-              id="friendEmail"
-              autoComplete="off"
-              placeholder="Enter friend's email..."
-              value={friendEmail}
-              onChange={(e) => setFriendEmail(e.target.value)}
-            />
-            <button type="button" className="button" onClick={sendFriendRequest}>Send Request</button>
+          <div className="friends-header">
+            <div className="add-friend-form">
+              <input
+                className="input"
+                type="text"
+                name="friendEmail"
+                id="friendEmail"
+                autoComplete="off"
+                placeholder="Search by email or name..."
+                value={friendEmail}
+                onChange={(e) => setFriendEmail(e.target.value)}
+              />
+              <button type="button" className="button" onClick={sendFriendRequest}>Add</button>
+            </div>
           </div>
           
           {friendRequests.length > 0 && (
-            <div className="friend-requests">
-              <h3>Friend Requests</h3>
-              {friendRequests.map(req => (
-                <div key={req.id} className="friend-request-item">
-                  <span>{req.email || req.name || 'Someone'}</span>
-                  <button className="button small" onClick={() => acceptFriendRequest(req.id)}>Accept</button>
-                </div>
-              ))}
+            <div className="friend-requests-section">
+              <h3>📩 Friend Requests</h3>
+              <div className="requests-grid">
+                {friendRequests.map(req => (
+                  <div key={req.id} className="request-card">
+                    <span className="request-avatar">{req.emoji || '👤'}</span>
+                    <div className="request-info">
+                      <span className="request-name">{req.name || req.email || 'Someone'}</span>
+                    </div>
+                    <button className="button small accept-btn" onClick={() => acceptFriendRequest(req.id)}>Accept</button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           
-          <h2>Your Friends</h2>
+          <h2>Your Glow Squad</h2>
           {friends.length === 0 ? (
-            <p className="empty-message">No friends yet. Add someone to get started!</p>
+            <div className="empty-community">
+              <span className="empty-icon">👥</span>
+              <p>Your glow squad is empty</p>
+              <span className="empty-hint">Add friends to see their glow scores and challenge each other!</span>
+            </div>
           ) : (
-            <div className="friends-list">
-              {friends.map(friend => (
-                <div key={friend.id} className="friend-item">
-                  <span className="friend-avatar">{friend.emoji || '👤'}</span>
-                  <span className="friend-name">{friend.name || friend.email || 'Friend'}</span>
-                </div>
-              ))}
+            <div className="friends-grid">
+              {friends.map(friend => {
+                const isPartner = accountabilityPartners.includes(friend.id);
+                const friendScore = friendGlowScores[friend.id] || {};
+                return (
+                  <div key={friend.id} className={`friend-card ${isPartner ? 'is-partner' : ''}`}>
+                    <div className="friend-card-header">
+                      <span className="friend-avatar-lg">{friend.emoji || '👤'}</span>
+                      <span className="partner-badge">{isPartner ? '⭐ Partner' : ''}</span>
+                    </div>
+                    <h3 className="friend-card-name">{friend.name || 'Glow Friend'}</h3>
+                    <div className="friend-quick-stats">
+                      <div className="quick-stat">
+                        <span className="quick-value">{friendScore.todayProgress || 0}%</span>
+                        <span className="quick-label">Today</span>
+                      </div>
+                      <div className="quick-stat">
+                        <span className="quick-value">🔥 {friendScore.streak || 0}</span>
+                        <span className="quick-label">Streak</span>
+                      </div>
+                    </div>
+                    <div className="friend-card-actions">
+                      <button 
+                        className={`button small ${isPartner ? 'partner-btn' : ''}`}
+                        onClick={() => togglePartner(friend.id)}
+                      >
+                        {isPartner ? '✓ Partner' : '+ Partner'}
+                      </button>
+                      {isPartner && (
+                        <button 
+                          className="button small nudge-btn"
+                          onClick={() => nudgePartner(friend.id)}
+                        >
+                          👋 Nudge
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -3551,127 +3792,266 @@ function CommunityPage({ session }) {
 
       {activeTab === 'accountability' && (
         <div className="accountability-section">
-          <h2>Accountability Partner</h2>
-          <p className="section-hint">Share your progress and stay motivated together</p>
+          <div className="accountability-header">
+            <div>
+              <h2>Accountability Team</h2>
+              <p className="section-hint">Keep each other on track with daily progress</p>
+            </div>
+            <div className="header-actions">
+              <button className="button" onClick={() => setShowPartnerSelect(true)}>
+                + Add Partner
+              </button>
+              <button className="button secondary" onClick={() => setShowCreateGroup(true)}>
+                + Create Group
+              </button>
+            </div>
+          </div>
           
-          {!accountabilityPartner ? (
-            <>
-              <p>Select a friend to be your accountability partner:</p>
-              <div className="friends-list">
-                {friends.length === 0 ? (
-                  <p className="empty-message">Add friends first to select an accountability partner</p>
-                ) : (
-                  friends.map(friend => (
-                    <div 
-                      key={friend.id} 
-                      className="friend-item selectable"
-                      onClick={() => {
-                        setAccountabilityPartner(friend.id);
-                        localStorage.setItem('accountabilityPartner', friend.id);
-                        loadFriends();
-                      }}
-                    >
-                      <span className="friend-avatar">{friend.emoji || '👤'}</span>
-                      <span className="friend-name">{friend.name || 'Friend'}</span>
-                      <span className="select-hint">+ Select</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </>
+          {/* Partners List */}
+          {accountabilityPartners.length === 0 && groups.length === 0 ? (
+            <div className="empty-community">
+              <span className="empty-icon">🤝</span>
+              <p>No accountability partners yet</p>
+              <span className="empty-hint">Add partners or create a group to stay motivated together!</span>
+            </div>
           ) : (
-            <>
-              <div className="partner-card">
-                <div className="partner-header">
-                  <span className="partner-avatar">{partnerData?.emoji || '👤'}</span>
-                  <div className="partner-info">
-                    <h3>{partnerData?.name || 'Your Partner'}</h3>
+            <div className="partners-list">
+              {accountabilityPartners.map(partnerId => {
+                const partner = partnersData[partnerId];
+                const friend = friends.find(f => f.id === partnerId);
+                const displayData = partner || friend || {};
+                const isAtRisk = displayData.streak > 0 && displayData.streak <= 3;
+                const needsPush = !displayData.todayProgress || displayData.todayProgress < 50;
+                
+                return (
+                  <div key={partnerId} className={`partner-card ${needsPush ? 'needs-attention' : ''}`}>
+                    <div className="partner-card-main">
+                      <div className="partner-avatar-lg">{displayData.emoji || '👤'}</div>
+                      <div className="partner-details">
+                        <h3>{displayData.name || 'Partner'}</h3>
+                        <div className="partner-live-stats">
+                          <span className={`status-dot ${needsPush ? 'off' : 'on'}`}></span>
+                          <span>{needsPush ? 'Needs a push!' : 'Glowing today!'}</span>
+                        </div>
+                      </div>
+                      <button 
+                        className="nudge-btn-lg"
+                        onClick={() => nudgePartner(partnerId)}
+                        title="Send a nudge"
+                      >
+                        👋
+                      </button>
+                    </div>
+                    <div className="partner-stats-row">
+                      <div className="stat-item">
+                        <span className="stat-num">{displayData.todayProgress || 0}%</span>
+                        <span className="stat-text">Today</span>
+                      </div>
+                      <div className="stat-divider"></div>
+                      <div className="stat-item">
+                        <span className="stat-num">🔥 {displayData.streak || 0}</span>
+                        <span className="stat-text">Streak</span>
+                      </div>
+                      <div className="stat-divider"></div>
+                      <div className="stat-item">
+                        <span className="stat-num">{displayData.weeklyGlow || 0}%</span>
+                        <span className="stat-text">Weekly</span>
+                      </div>
+                    </div>
+                    {isAtRisk && (
+                      <div className="partner-alert streak-warning">
+                        🔥 Streak at risk! Only {3 - displayData.streak} days left
+                      </div>
+                    )}
                     <button 
-                      className="button small"
-                      onClick={() => {
-                        setAccountabilityPartner(null);
-                        localStorage.removeItem('accountabilityPartner');
-                        setPartnerData(null);
-                      }}
+                      className="remove-partner"
+                      onClick={() => togglePartner(partnerId)}
                     >
                       Remove Partner
                     </button>
                   </div>
+                );
+              })}
+            </div>
+          )}
+          
+          {/* Groups Section */}
+          {groups.length > 0 && (
+            <div className="groups-section">
+              <h3>Your Groups</h3>
+              <div className="groups-grid">
+                {groups.map(group => {
+                  const groupMembers = friends.filter(f => group.members.includes(f.id));
+                  return (
+                    <div key={group.id} className="group-card">
+                      <div className="group-header">
+                        <span className="group-icon">👥</span>
+                        <h4>{group.name}</h4>
+                        <button 
+                          className="group-delete"
+                          onClick={() => deleteGroup(group.id)}
+                        >×</button>
+                      </div>
+                      <div className="group-members">
+                        {groupMembers.slice(0, 4).map(member => (
+                          <span key={member.id} className="member-avatar">
+                            {member.emoji || '👤'}
+                          </span>
+                        ))}
+                        {groupMembers.length > 4 && (
+                          <span className="member-more">+{groupMembers.length - 4}</span>
+                        )}
+                      </div>
+                      <div className="group-stats">
+                        <span>{groupMembers.length} members</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
+          {/* Share Settings */}
+          <div className="share-settings-section">
+            <h3>📤 What You're Sharing</h3>
+            <div className="share-toggles">
+              <label className={`share-toggle ${shareSettings.dailyProgress ? 'active' : ''}`}>
+                <input 
+                  type="checkbox" 
+                  checked={shareSettings.dailyProgress}
+                  onChange={() => updateShareSetting('dailyProgress')}
+                />
+                <span className="toggle-track">
+                  <span className="toggle-thumb"></span>
+                </span>
+                <span>Daily Progress</span>
+              </label>
+              <label className={`share-toggle ${shareSettings.glowScores ? 'active' : ''}`}>
+                <input 
+                  type="checkbox" 
+                  checked={shareSettings.glowScores}
+                  onChange={() => updateShareSetting('glowScores')}
+                />
+                <span className="toggle-track">
+                  <span className="toggle-thumb"></span>
+                </span>
+                <span>Glow Scores</span>
+              </label>
+              <label className={`share-toggle ${shareSettings.streakStatus ? 'active' : ''}`}>
+                <input 
+                  type="checkbox" 
+                  checked={shareSettings.streakStatus}
+                  onChange={() => updateShareSetting('streakStatus')}
+                />
+                <span className="toggle-track">
+                  <span className="toggle-thumb"></span>
+                </span>
+                <span>Streak Status</span>
+              </label>
+              <label className={`share-toggle ${shareSettings.longTermGoals ? 'active' : ''}`}>
+                <input 
+                  type="checkbox" 
+                  checked={shareSettings.longTermGoals}
+                  onChange={() => updateShareSetting('longTermGoals')}
+                />
+                <span className="toggle-track">
+                  <span className="toggle-thumb"></span>
+                </span>
+                <span>Long-term Goals</span>
+              </label>
+            </div>
+          </div>
+          
+          {/* Partner Selection Modal */}
+          {showPartnerSelect && (
+            <div className="modal-overlay" onClick={() => setShowPartnerSelect(false)}>
+              <div className="modal partner-select-modal" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2>Select Partners</h2>
+                  <button onClick={() => setShowPartnerSelect(false)}>×</button>
                 </div>
-                
-                <div className="partner-stats">
-                  <div className="partner-stat">
-                    <span className="stat-value">{partnerData?.todayProgress || 0}%</span>
-                    <span className="stat-label">Today's Progress</span>
-                  </div>
-                  <div className="partner-stat">
-                    <span className="stat-value">{partnerData?.streak || 0}</span>
-                    <span className="stat-label">Day Streak</span>
-                  </div>
-                  <div className="partner-stat">
-                    <span className="stat-value">{partnerData?.weeklyGlow || 0}%</span>
-                    <span className="stat-label">Weekly Glow</span>
-                  </div>
+                <div className="modal-content">
+                  <p className="modal-hint">Choose friends to add to your accountability pod:</p>
+                  {friends.length === 0 ? (
+                    <p className="empty-message">Add friends first to select partners</p>
+                  ) : (
+                    <div className="partner-select-list">
+                      {friends.map(friend => {
+                        const isPartner = accountabilityPartners.includes(friend.id);
+                        return (
+                          <div 
+                            key={friend.id}
+                            className={`partner-select-item ${isPartner ? 'selected' : ''}`}
+                            onClick={() => togglePartner(friend.id)}
+                          >
+                            <span className="friend-avatar">{friend.emoji || '👤'}</span>
+                            <span className="friend-name">{friend.name || 'Friend'}</span>
+                            <span className="select-check">{isPartner ? '✓' : '+'}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <button className="button" onClick={() => setShowPartnerSelect(false)}>
+                    Done
+                  </button>
                 </div>
-                
-                {partnerData?.streak > 0 && partnerData?.streak <= 3 && (
-                  <div className="partner-alert streak-warning">
-                    🔥 {partnerData.name}'s streak is at risk! Only {3 - partnerData.streak} days left!
-                  </div>
-                )}
-                
-                {(!partnerData?.todayProgress || partnerData?.todayProgress < 50) && (
-                  <div className="partner-alert progress-warning">
-                    ⚠️ {partnerData?.name || 'Your partner'} hasn't completed their habits today
-                  </div>
-                )}
-                
-                {partnerData?.goals?.length > 0 && (
-                  <div className="partner-goals">
-                    <h4>🎯 Their Goals</h4>
-                    {partnerData.goals.map((goal, idx) => (
-                      <div key={idx} className="partner-goal-item">
-                        <span>{goal.title}</span>
-                        <span className="goal-timeframe">{goal.timeframe}</span>
+              </div>
+            </div>
+          )}
+          
+          {/* Create Group Modal */}
+          {showCreateGroup && (
+            <div className="modal-overlay" onClick={() => setShowCreateGroup(false)}>
+              <div className="modal create-group-modal" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2>Create Group</h2>
+                  <button onClick={() => setShowCreateGroup(false)}>×</button>
+                </div>
+                <div className="modal-content">
+                  <label className="form-label">Group Name</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g., Morning Crew"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                  />
+                  <label className="form-label">Select Members (min 2)</label>
+                  <div className="group-member-select">
+                    {friends.map(friend => (
+                      <div 
+                        key={friend.id}
+                        className={`member-checkbox ${selectedGroupMembers.includes(friend.id) ? 'selected' : ''}`}
+                        onClick={() => toggleGroupMember(friend.id)}
+                      >
+                        <span className="friend-avatar">{friend.emoji || '👤'}</span>
+                        <span>{friend.name || 'Friend'}</span>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-              
-              <div className="share-section">
-                <h3>What You're Sharing</h3>
-                <div className="share-options">
-                  <label className="share-option">
-                    <input type="checkbox" defaultChecked />
-                    <span>Daily Progress</span>
-                  </label>
-                  <label className="share-option">
-                    <input type="checkbox" defaultChecked />
-                    <span>Glow Scores & Insights</span>
-                  </label>
-                  <label className="share-option">
-                    <input type="checkbox" defaultChecked />
-                    <span>Streak Status</span>
-                  </label>
-                  <label className="share-option">
-                    <input type="checkbox" defaultChecked />
-                    <span>Long-term Goals</span>
-                  </label>
-                  <label className="share-option">
-                    <input type="checkbox" defaultChecked />
-                    <span>Challenge Progress</span>
-                  </label>
+                  <div className="modal-actions">
+                    <button className="button secondary" onClick={() => setShowCreateGroup(false)}>
+                      Cancel
+                    </button>
+                    <button 
+                      className="button"
+                      onClick={createGroup}
+                      disabled={selectedGroupMembers.length < 2}
+                    >
+                      Create Group
+                    </button>
+                  </div>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
 
       {activeTab === 'challenges' && (
         <div className="challenges-section">
-          {/* My Joined Challenges */}
           {joinedChallenges.length > 0 && (
             <div className="my-challenges">
               <h2>✨ My Challenges</h2>
@@ -3685,22 +4065,45 @@ function CommunityPage({ session }) {
                     'Hydration Goddess': '💧',
                     'Fitness Glow': '💪',
                     'Mindful Mornings': '🧘',
-                    'Financial Glow': '💰'
+                    'Financial Glow': '💰',
+                    'Sleep Champion': '😴',
+                    'Healthy Eating': '🥗',
+                    'Digital Detox': '📵',
+                    'Step Master': '👟',
+                    'No Sugar': '🚫🍬',
+                    'Self Care': '💆',
+                    'Journal Queen': '📓'
                   };
+                  const progress = challengeProgress[challenge.id] || { percentage: 0, completed: 0, total: 0, daysCompleted: 0, totalDays: 7 };
+                  const daysLeft = Math.max(0, challenge.duration_days - Math.floor((Date.now() - new Date(join.joined_at).getTime()) / (1000 * 60 * 60 * 24)));
+                  const isStreakChallenge = progress.isStreakChallenge;
+                  
                   return (
-                    <div key={join.id} className="my-challenge-card">
+                    <div key={join.id} className="my-challenge-card clickable" onClick={() => setSelectedChallengeDetail({ challenge, join })}>
                       <div className="challenge-icon">{challengeEmojis[challenge.title] || '🎯'}</div>
                       <h3>{challenge.title}</h3>
-                      <div className="challenge-progress">
-                        <div className="progress-bar">
-                          <div 
-                            className="progress-fill glow-progress" 
-                            style={{ width: `${join.progress || 0}%` }}
-                          />
-                        </div>
-                        <span>{join.progress || 0}%</span>
-                      </div>
-                      <span className="days-left">{challenge.duration_days - Math.floor((Date.now() - new Date(join.joined_at).getTime()) / (1000 * 60 * 60 * 24))} days left</span>
+                      {progress.total > 0 || isStreakChallenge ? (
+                        <>
+                          <div className="challenge-progress">
+                            <div className="progress-bar">
+                              <div 
+                                className="progress-fill glow-progress" 
+                                style={{ width: `${progress.percentage}%` }}
+                              />
+                            </div>
+                            <span>{progress.percentage}%</span>
+                          </div>
+                          <span className="progress-detail">
+                            🔥 {progress.daysCompleted}/{progress.totalDays} days completed
+                          </span>
+                          {progress.daysCompleted > 0 && (
+                            <span className="streak-info">Keep it going!</span>
+                          )}
+                        </>
+                      ) : (
+                        <p className="no-matching-habits">Add matching habits to track!</p>
+                      )}
+                      <span className="days-left">{daysLeft} days left</span>
                     </div>
                   );
                 })}
@@ -3708,7 +4111,6 @@ function CommunityPage({ session }) {
             </div>
           )}
           
-          {/* All Challenges - hide already joined */}
           <h2>🔥 Active Challenges</h2>
           {challenges.filter(c => !joinedChallenges.some(j => j.challenge_id === c.id)).length === 0 ? (
             <p className="empty-message">You've joined all challenges! Check back for new ones.</p>
@@ -3722,8 +4124,16 @@ function CommunityPage({ session }) {
                   'Hydration Goddess': '💧',
                   'Fitness Glow': '💪',
                   'Mindful Mornings': '🧘',
-                  'Financial Glow': '💰'
+                  'Financial Glow': '💰',
+                  'Sleep Champion': '😴',
+                  'Healthy Eating': '🥗',
+                  'Digital Detox': '📵',
+                  'Step Master': '👟',
+                  'No Sugar': '🚫🍬',
+                  'Self Care': '💆',
+                  'Journal Queen': '📓'
                 };
+                const matchingKeywords = challengeKeywords[challenge.title] || [];
                 return (
                   <div key={challenge.id} className={`challenge-card ${isJoined ? 'joined' : ''}`}>
                     <div className="challenge-header">
@@ -3732,6 +4142,9 @@ function CommunityPage({ session }) {
                     </div>
                     <h3>{challenge.title}</h3>
                     <p className="challenge-desc">{challenge.description}</p>
+                    {matchingKeywords.length > 0 && (
+                      <p className="challenge-keywords">Keywords: {matchingKeywords.slice(0, 3).join(', ')}...</p>
+                    )}
                     <div className="challenge-stats">
                       <div className="stat">
                         <span className="stat-icon">👥</span>
@@ -3763,16 +4176,172 @@ function CommunityPage({ session }) {
         </div>
       )}
 
+      {/* Challenge Detail Modal */}
+      {selectedChallengeDetail && (
+        <div className="modal-overlay" onClick={() => setSelectedChallengeDetail(null)}>
+          <div className="modal challenge-detail-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{selectedChallengeDetail.challenge.title}</h2>
+              <button onClick={() => setSelectedChallengeDetail(null)}>×</button>
+            </div>
+            <div className="modal-content challenge-detail-content">
+              {(() => {
+                const details = getChallengeDetails(selectedChallengeDetail.challenge);
+                const challenge = selectedChallengeDetail.challenge;
+                const progress = challengeProgress[challenge.id] || { percentage: 0 };
+                
+                return (
+                  <>
+                    <p className="challenge-detail-desc">{challenge.description}</p>
+                    
+                    <div className="challenge-stat-highlight">
+                      <div className="stat-circle">
+                        <span className="stat-number">{progress.percentage}%</span>
+                        <span className="stat-text">Complete</span>
+                      </div>
+                    </div>
+                    
+                    {details.isStreak ? (
+                      <>
+                        <div className="detail-section highlight-section">
+                          <h4>📊 Overall Progress</h4>
+                          <div className="overall-stats">
+                            <div className="overall-stat">
+                              <span className="overall-number">{details.daysCompleted}</span>
+                              <span className="overall-label">Days Completed</span>
+                            </div>
+                            <div className="overall-divider">/</div>
+                            <div className="overall-stat">
+                              <span className="overall-number">{details.duration}</span>
+                              <span className="overall-label">Total Days</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="detail-section today-section">
+                          <h4>☀️ Today's Progress</h4>
+                          <div className="today-stats">
+                            <div className="today-main">
+                              <span className="today-fraction">{details.todayCompletion}/{details.todayTotal}</span>
+                              <span className="today-label">habits done</span>
+                            </div>
+                            <div className="today-progress-bar">
+                              <div className="progress-bar">
+                                <div 
+                                  className="progress-fill glow-progress"
+                                  style={{ width: `${details.todayTotal > 0 ? (details.todayCompletion / details.todayTotal) * 100 : 0}%` }}
+                                />
+                              </div>
+                              <span className="today-pct">
+                                {details.todayTotal > 0 ? Math.round((details.todayCompletion / details.todayTotal) * 100) : 0}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="detail-section">
+                          <h4>📅 Day History</h4>
+                          <div className="day-history">
+                            {details.dayHistory.map((day, idx) => (
+                              <div key={day.date} className={`day-item ${day.isToday ? 'today' : ''} ${day.percentage === 100 ? 'completed' : ''}`}>
+                                <span className="day-date">{day.dayName}</span>
+                                <div className="day-bar">
+                                  <div 
+                                    className={`day-fill ${day.percentage === 100 ? 'full' : ''}`}
+                                    style={{ width: `${day.percentage}%` }}
+                                  />
+                                </div>
+                                <span className="day-pct">{day.percentage}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="detail-section">
+                          <h4>💡 Keywords Tracked</h4>
+                          <div className="keywords-list">
+                            {details.keywords.map(k => (
+                              <span key={k} className="keyword-tag">{k}</span>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {details.matchingHabits.length > 0 ? (
+                          <>
+                            <div className="detail-section highlight-section">
+                              <h4>☀️ Today's Progress</h4>
+                              <div className="today-stats">
+                                <div className="today-main">
+                                  <span className="today-fraction">{details.todayCompletion}/{details.todayTotal}</span>
+                                  <span className="today-label">matching habits done</span>
+                                </div>
+                                <div className="today-progress-bar">
+                                  <div className="progress-bar">
+                                    <div 
+                                      className="progress-fill glow-progress"
+                                      style={{ width: `${details.todayTotal > 0 ? (details.todayCompletion / details.todayTotal) * 100 : 0}%` }}
+                                    />
+                                  </div>
+                                  <span className="today-pct">
+                                    {details.todayTotal > 0 ? Math.round((details.todayCompletion / details.todayTotal) * 100) : 0}%
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="detail-section">
+                              <h4>📋 Matching Habits ({details.matchingHabits.length})</h4>
+                              <div className="matching-habits">
+                                {details.matchingHabits.map(t => {
+                                  const today = new Date().toISOString().split('T')[0];
+                                  const isDone = localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true';
+                                  return (
+                                    <div key={t.id} className={`habit-check-item ${isDone ? 'done' : ''}`}>
+                                      <span className="habit-check">{isDone ? '✓' : '○'}</span>
+                                      <span className="habit-name">{t.title}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="detail-section">
+                            <p className="no-habits-msg">
+                              No habits match these keywords yet. Add habits with "{details.keywords[0]}" to track them!
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <div className="detail-footer">
+                      <span className="duration-badge">📅 {challenge.duration_days} days</span>
+                      <span className="participants-badge">👥 {challenge.totalParticipants || 0} joined</span>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'leaderboard' && (
         <div className="community-section">
-          <h2>Top Streaks</h2>
+          <h2>🏆 Top Streaks</h2>
           {leaderboard.length === 0 ? (
-            <p className="empty-message">No streaks yet. Complete your habits to get on the board!</p>
+            <div className="empty-community">
+              <span className="empty-icon">🔥</span>
+              <p>No streaks yet</p>
+              <span className="empty-hint">Complete your habits daily to get on the board!</span>
+            </div>
           ) : (
             <div className="leaderboard">
               {leaderboard.map((entry, index) => (
                 <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
-                  <span className="rank">#{index + 1}</span>
+                  <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
                   <span className="avatar">{entry.profile?.emoji || '👤'}</span>
                   <span className="name">{entry.profile?.name || 'Glow User'}</span>
                   <span className="streak">🔥 {entry.streak_count} days</span>
