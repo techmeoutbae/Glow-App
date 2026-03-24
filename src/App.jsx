@@ -411,11 +411,22 @@ function GlowApp({ session }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
   
-  // Update glow display when refreshKey changes
-  const [glowDisplayKey, setGlowDisplayKey] = useState(0);
+  // Store glow score in state for immediate updates
+  const [totalGlowPoints, setTotalGlowPoints] = useState(0);
+  
+  // Update glow score whenever refreshKey changes or tasks load
   useEffect(() => {
-    setGlowDisplayKey(refreshKey);
-  }, [refreshKey]);
+    setTotalGlowPoints(getTotalGlowPoints());
+  }, [refreshKey, tasks, session?.user?.id]);
+  
+  // Also update when window gains focus (handles cross-tab updates)
+  useEffect(() => {
+    const handleFocus = () => {
+      setTotalGlowPoints(getTotalGlowPoints());
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [tasks]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
@@ -2258,10 +2269,10 @@ function GlowApp({ session }) {
       
       {/* Floating Glow Score */}
       {!minimizeGlow ? (
-        <div className="floating-glow" key={`glow-${glowDisplayKey}`}>
+        <div className="floating-glow">
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
-            <span className="floating-glow-score">{getTotalGlowPoints()}</span>
+            <span className="floating-glow-score">{totalGlowPoints}</span>
             <span className="floating-glow-label">Total Glow</span>
           </div>
         </div>
@@ -2529,7 +2540,7 @@ function GlowApp({ session }) {
             
             <div className="profile-stats">
               <div className="stat-card">
-                <span className="stat-value">{getTotalGlowPoints()}</span>
+                <span className="stat-value">{totalGlowPoints}</span>
                 <span className="stat-label">Total Glow</span>
               </div>
               <div className="stat-card">
