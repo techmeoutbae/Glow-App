@@ -385,12 +385,6 @@ function GlowApp({ session }) {
       } else {
         setOnboardingStep(null);
       }
-      // Initialize glow score cache
-      const cached = localStorage.getItem('cachedGlowScore');
-      if (!cached) {
-        const initial = getTotalGlowPoints();
-        localStorage.setItem('cachedGlowScore', initial.toString());
-      }
     }
   }, [session]);
   
