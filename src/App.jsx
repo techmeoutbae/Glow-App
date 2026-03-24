@@ -344,6 +344,7 @@ function GlowApp({ session }) {
   // Main navigation: home, habits, insights, growth, community
   const [currentPage, setCurrentPage] = useState("home");
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [showAddIdentity, setShowAddIdentity] = useState(false);
   const [showArchetypeModal, setShowArchetypeModal] = useState(false);
@@ -2277,7 +2278,7 @@ function GlowApp({ session }) {
         </button>
         <button 
           className="nav-btn"
-          onClick={() => setShowProfileEdit(true)}
+          onClick={() => setShowProfile(true)}
         >
           <span className="nav-icon">👤</span>
           <span className="nav-label">Profile</span>
@@ -2452,6 +2453,103 @@ function GlowApp({ session }) {
                 <button type="submit" className="button">Save Changes</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Profile Page Modal */}
+      {showProfile && (
+        <div className="modal-overlay" onClick={() => setShowProfile(false)}>
+          <div className="profile-modal" onClick={e => e.stopPropagation()}>
+            <div className="profile-header">
+              <button className="profile-close" onClick={() => setShowProfile(false)}>×</button>
+              <div className="profile-avatar">
+                {userName ? userName.charAt(0).toUpperCase() : '👤'}
+              </div>
+              <h2 className="profile-name">{userName || 'Guest'}</h2>
+              <p className="profile-email">{session?.user?.email}</p>
+            </div>
+            
+            <div className="profile-stats">
+              <div className="stat-card">
+                <span className="stat-value">{getTotalGlowPoints()}</span>
+                <span className="stat-label">Total Glow</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{getStreak()}</span>
+                <span className="stat-label">Day Streak</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{tasks.length}</span>
+                <span className="stat-label">Habits</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{friends.length}</span>
+                <span className="stat-label">Friends</span>
+              </div>
+            </div>
+            
+            <div className="profile-sections">
+              <div className="profile-section">
+                <h3>Account</h3>
+                <button className="profile-menu-item" onClick={() => { setShowProfile(false); setShowProfileEdit(true); }}>
+                  <span className="menu-icon">✏️</span>
+                  <span className="menu-text">Edit Profile</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+                <button className="profile-menu-item" onClick={() => { setShowProfile(false); setShowSettings(true); }}>
+                  <span className="menu-icon">⚙️</span>
+                  <span className="menu-text">Settings</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+              </div>
+              
+              <div className="profile-section">
+                <h3>Data</h3>
+                <button className="profile-menu-item" onClick={() => { if(confirm('Export your data?')) alert('Coming soon!'); }}>
+                  <span className="menu-icon">📤</span>
+                  <span className="menu-text">Export Data</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+                <button className="profile-menu-item danger" onClick={() => { if(confirm('Clear all local data? This cannot be undone.')) { localStorage.clear(); alert('Data cleared! Please refresh.'); } }}>
+                  <span className="menu-icon">🗑️</span>
+                  <span className="menu-text">Clear Local Data</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+              </div>
+              
+              <div className="profile-section">
+                <h3>Support</h3>
+                <button className="profile-menu-item" onClick={() => { setShowProfile(false); setShowHowItWorks(true); }}>
+                  <span className="menu-icon">❓</span>
+                  <span className="menu-text">How Glow Works</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+                <button className="profile-menu-item" onClick={() => { alert('Need help? Email support@glowapp.com'); }}>
+                  <span className="menu-icon">💬</span>
+                  <span className="menu-text">Contact Support</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+              </div>
+              
+              <div className="profile-section">
+                <h3>Account Actions</h3>
+                <button className="profile-menu-item" onClick={() => { setShowProfile(false); setOnboardingStep('welcome'); }}>
+                  <span className="menu-icon">🔄</span>
+                  <span className="menu-text">Replay Introduction</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+                <button className="profile-menu-item logout" onClick={() => supabase.auth.signOut()}>
+                  <span className="menu-icon">🚪</span>
+                  <span className="menu-text">Sign Out</span>
+                  <span className="menu-arrow">›</span>
+                </button>
+              </div>
+            </div>
+            
+            <div className="profile-footer">
+              <p>Glow App v1.0</p>
+            </div>
           </div>
         </div>
       )}
