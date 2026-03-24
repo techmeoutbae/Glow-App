@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./App.css";
 import { supabase } from "./supabase";
 
@@ -411,22 +411,16 @@ function GlowApp({ session }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
   
-  // Store glow score in state for immediate updates
+  // Store glow score - use ref for immediate updates
   const [totalGlowPoints, setTotalGlowPoints] = useState(0);
+  const glowScoreRef = useRef(0);
   
-  // Update glow score whenever refreshKey changes or tasks load
+  // Update glow score whenever tasks load or refresh
   useEffect(() => {
-    setTotalGlowPoints(getTotalGlowPoints());
-  }, [refreshKey, tasks, session?.user?.id]);
-  
-  // Also update when window gains focus (handles cross-tab updates)
-  useEffect(() => {
-    const handleFocus = () => {
-      setTotalGlowPoints(getTotalGlowPoints());
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [tasks]);
+    const score = getTotalGlowPoints();
+    glowScoreRef.current = score;
+    setTotalGlowPoints(score);
+  }, [tasks, session?.user?.id]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
@@ -1177,9 +1171,11 @@ function GlowApp({ session }) {
         setTimeout(() => setShowGlowAnimation(false), 3000);
       }
       
-      // Immediately update glow score state
-      const newGlow = getTotalGlowPoints();
-      setTotalGlowPoints(newGlow);
+      // Recalculate and update glow score immediately
+      setTotalGlowPoints(prev => {
+        const calculated = getTotalGlowPoints();
+        return calculated;
+      });
       
       // Save daily average after toggling
       saveDailyAverage();
