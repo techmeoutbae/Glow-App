@@ -2507,14 +2507,14 @@ function GlowApp({ session }) {
               
               <div className="profile-section">
                 <h3>Data</h3>
-                <button className="profile-menu-item" onClick={() => { if(confirm('Export your data?')) alert('Coming soon!'); }}>
+                <button className="profile-menu-item" onClick={() => { if(confirm('Download your data?')) alert('Coming soon!'); }}>
                   <span className="menu-icon">📤</span>
-                  <span className="menu-text">Export Data</span>
+                  <span className="menu-text">Download My Report</span>
                   <span className="menu-arrow">›</span>
                 </button>
-                <button className="profile-menu-item danger" onClick={() => { if(confirm('Clear all local data? This cannot be undone.')) { localStorage.clear(); alert('Data cleared! Please refresh.'); } }}>
-                  <span className="menu-icon">🗑️</span>
-                  <span className="menu-text">Clear Local Data</span>
+                <button className="profile-menu-item danger" onClick={() => { if(confirm('Reset app? This cannot be undone.')) { localStorage.clear(); alert('App reset! Please refresh.'); } }}>
+                  <span className="menu-icon">🔄</span>
+                  <span className="menu-text">Reset App</span>
                   <span className="menu-arrow">›</span>
                 </button>
               </div>
