@@ -174,7 +174,7 @@ function OnboardingChoose({ archetypes, onSelect, onBack }) {
   );
 }
 
-function TemplateEditor({ archetype, habits, onUpdate, onAdd, onRemove, onSave, onBack, isSaving, identities = [], onAddIdentity, onRemoveIdentity, onCreateIdentity }) {
+function TemplateEditor({ archetype, habits, onUpdate, onAdd, onRemove, onSave, onBack, isSaving, identities = [], onAddIdentity, onRemoveIdentity, onCreateIdentity, categories = [] }) {
   const [newIdentityName, setNewIdentityName] = useState("");
   const [showAddIdentity, setShowAddIdentity] = useState(false);
   
@@ -268,13 +268,15 @@ function TemplateEditor({ archetype, habits, onUpdate, onAdd, onRemove, onSave, 
                   value={habit.title}
                   onChange={(e) => onUpdate(idx, 'title', e.target.value)}
                 />
-                <input
-                  className="input two-min"
-                  placeholder="2-min version"
-                  name={`habitTwoMin-${idx}`}
-                  value={habit.twoMin || ''}
-                  onChange={(e) => onUpdate(idx, 'twoMin', e.target.value)}
-                />
+                <select
+                  className="input habit-category-select"
+                  value={habit.category || categories[0] || 'Health'}
+                  onChange={(e) => onUpdate(idx, 'category', e.target.value)}
+                >
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
                 <button className="remove-btn" onClick={() => onRemove(idx)}>×</button>
               </div>
             ))}
@@ -980,8 +982,18 @@ function GlowApp({ session }) {
     setAdoptedArchetypes(newAdopted);
     localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
 
+    // Save template habits to archetype for future use
+    const habitsToSave = templateHabits.filter(h => h.title.trim()).map(h => ({
+      title: h.title,
+      category: h.category || 'Health'
+    }));
+    await supabase.from("archetypes").update({
+      template_habits: habitsToSave
+    }).eq('id', selectedArchetype.id);
+
     for (const habit of templateHabits) {
-      const category = habit.category || "Growth";
+      if (!habit.title?.trim()) continue;
+      const category = habit.category || "Health";
       const page = (category === "Work" || category === "School") ? "work" : "daily";
       const habitTime = habit.time || "09:00";
       const isAllDay = !habit.time;
@@ -1018,7 +1030,7 @@ function GlowApp({ session }) {
   }
 
   function addTemplateHabit() {
-    setTemplateHabits([...templateHabits, { title: '', twoMin: '' }]);
+    setTemplateHabits([...templateHabits, { title: '', category: categoriesList[0] || 'Health' }]);
   }
 
   function removeTemplateHabit(index) {
@@ -1639,6 +1651,25 @@ function GlowApp({ session }) {
     }
   }
 
+  async function editArchetypeTemplate(archetype) {
+    // Parse template_habits if it's a string
+    let habits = archetype.template_habits;
+    if (typeof habits === 'string') {
+      try {
+        habits = JSON.parse(habits);
+      } catch (e) {
+        habits = [];
+      }
+    }
+    
+    setSelectedArchetype(archetype);
+    setActiveArchetype(archetype);
+    setTemplateHabits(habits || []);
+    setTemplateIdentities(archetype.default_identities?.map(name => ({ name, emoji: '✨' })) || []);
+    setOnboardingStep('template');
+    setShowSettings(false);
+  }
+
   async function removeArchetype(archetype) {
     const confirmed = confirm(`Remove "${archetype.name}" from your profiles? This will also delete all associated tasks. This cannot be undone.`);
     if (!confirmed) return;
@@ -1788,6 +1819,7 @@ function GlowApp({ session }) {
           onAddIdentity={addTemplateIdentity}
           onRemoveIdentity={removeTemplateIdentity}
           onCreateIdentity={createNewIdentity}
+          categories={categoriesList}
         />
       )}
 
@@ -1803,7 +1835,7 @@ function GlowApp({ session }) {
             <button className="close-settings" onClick={() => setShowSettings(false)}>×</button>
           </div>
           
-          <div className="settings-section">
+            <div className="settings-section">
             <h3>My Archetypes</h3>
             <p className="settings-hint">Switch between your adopted archetypes</p>
             <div className="archetype-switcher">
@@ -1815,6 +1847,16 @@ function GlowApp({ session }) {
                     onClick={() => switchToArchetype(arch)}
                   >
                     {arch.emoji} {arch.name}
+                    <button 
+                      className="edit-archetype-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        editArchetypeTemplate(arch);
+                      }}
+                      title="Edit template"
+                    >
+                      ✎
+                    </button>
                     <button 
                       className="remove-archetype-btn"
                       onClick={(e) => {
