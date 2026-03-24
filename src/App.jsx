@@ -367,6 +367,7 @@ function GlowApp({ session }) {
   
   // Onboarding state
   const [onboardingStep, setOnboardingStep] = useState(null);
+  const [isEditingArchetype, setIsEditingArchetype] = useState(false);
   const [templateHabits, setTemplateHabits] = useState([]);
   const [templateIdentities, setTemplateIdentities] = useState([]);
   
@@ -1015,6 +1016,7 @@ function GlowApp({ session }) {
     }
 
     setOnboardingStep(null);
+    setIsEditingArchetype(false);
     localStorage.setItem('hasCompletedOnboarding', 'true');
     setSelectedArchetype(null);
     setTemplateHabits([]);
@@ -1671,6 +1673,7 @@ function GlowApp({ session }) {
     setTemplateHabits(habits || []);
     setTemplateIdentities(archetype.default_identities?.map(name => ({ name, emoji: '✨' })) || []);
     setOnboardingStep('template');
+    setIsEditingArchetype(true);
     setShowSettings(false);
   }
 
@@ -1817,7 +1820,10 @@ function GlowApp({ session }) {
           onAdd={addTemplateHabit}
           onRemove={removeTemplateHabit}
           onSave={saveTemplateAndFinish}
-          onBack={() => setOnboardingStep('choose')}
+          onBack={() => {
+            setOnboardingStep(null);
+            setIsEditingArchetype(false);
+          }}
           isSaving={isAdopting}
           identities={templateIdentities}
           onAddIdentity={addTemplateIdentity}
