@@ -363,9 +363,6 @@ function GlowApp({ session }) {
   const [showDailyRecap, setShowDailyRecap] = useState(false);
   const [recapData, setRecapData] = useState({ earned: 0, penalty: 0, total: 0 });
   
-  // Confirmation modal state
-  const [confirmModal, setConfirmModal] = useState({ show: false, message: '', onConfirm: null, icon: '⚠️' });
-  
   // Edit habit state
   const [showEditHabit, setShowEditHabit] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
@@ -441,16 +438,11 @@ function GlowApp({ session }) {
   };
   
   const deleteCustomCategory = (cat) => {
-    setConfirmModal({
-      show: true,
-      message: `Delete category "${cat}"?`,
-      icon: '🗑️',
-      onConfirm: () => {
-        const updated = customCategories.filter(c => c !== cat);
-        setCustomCategories(updated);
-        localStorage.setItem('customCategories', JSON.stringify(updated));
-      }
-    });
+    const confirmed = confirm(`Delete category "${cat}"?`);
+    if (!confirmed) return;
+    const updated = customCategories.filter(c => c !== cat);
+    setCustomCategories(updated);
+    localStorage.setItem('customCategories', JSON.stringify(updated));
   };
   
   // Category to Identity mapping
@@ -1163,6 +1155,7 @@ function GlowApp({ session }) {
         localStorage.setItem(completionKey, 'true');
         setLastCompletedType(isTodo ? 'todo' : 'habit');
         setShowGlowAnimation(true);
+        // Auto-close after 3 seconds
         setTimeout(() => setShowGlowAnimation(false), 3000);
       }
       
@@ -1171,6 +1164,8 @@ function GlowApp({ session }) {
       
       // Force re-render to update scores from localStorage
       setRefreshKey(k => k + 1);
+      
+      // Update challenge refresh key to trigger challenge progress update
       setChallengeRefreshKey(k => k + 1);
     } catch (e) {
       console.error('Toggle task error:', e);
@@ -1559,40 +1554,33 @@ function GlowApp({ session }) {
   };
   
   const deleteTodo = (id) => {
-    setConfirmModal({
-      show: true,
-      message: 'Delete this task?',
-      icon: '🗑️',
-      onConfirm: () => saveTodos(todos.filter(t => t.id !== id))
-    });
+    const confirmed = confirm('Delete this task?');
+    if (!confirmed) return;
+    saveTodos(todos.filter(t => t.id !== id));
   };
 
   async function deleteArchetype(archetype) {
-    setConfirmModal({
-      show: true,
-      message: `Remove "${archetype.name}"? This will also delete all associated tasks.`,
-      icon: '⚠️',
-      onConfirm: async () => {
-        // Delete tasks associated with this archetype
-        await supabase.from("tasks").delete().eq("archetype_id", archetype.id);
-        
-        // Delete identities associated with this archetype
-        await supabase.from("identities").delete().eq("archetype_id", archetype.id);
-        
-        // Remove from adopted archetypes
-        const newAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
-        setAdoptedArchetypes(newAdopted);
-        localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
-        
-        // Clear active archetype if it was this one
-        if (activeArchetype?.id === archetype.id) {
-          setActiveArchetype(null);
-          localStorage.removeItem('activeArchetype');
-        }
-        
-        loadData();
-      }
-    });
+    const confirmed = confirm(`Are you sure you want to remove "${archetype.name}"? This will also delete all associated tasks. This cannot be undone.`);
+    if (!confirmed) return;
+    
+    // Delete tasks associated with this archetype
+    await supabase.from("tasks").delete().eq("archetype_id", archetype.id);
+    
+    // Delete identities associated with this archetype
+    await supabase.from("identities").delete().eq("archetype_id", archetype.id);
+    
+    // Remove from adopted archetypes
+    const newAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
+    setAdoptedArchetypes(newAdopted);
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
+    
+    // Clear active archetype if it was this one
+    if (activeArchetype?.id === archetype.id) {
+      setActiveArchetype(null);
+      localStorage.removeItem('activeArchetype');
+    }
+    
+    loadData();
   }
 
   async function addUserArchetype() {
@@ -1636,28 +1624,24 @@ function GlowApp({ session }) {
   }
   
   async function deleteUserArchetype(archetype) {
-    setConfirmModal({
-      show: true,
-      message: `Delete "${archetype.name}"? This cannot be undone.`,
-      icon: '⚠️',
-      onConfirm: async () => {
-        // Delete from Supabase
-        await supabase.from("archetypes").delete().eq("id", archetype.id);
-        
-        // Remove from adopted archetypes
-        const updatedAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
-        setAdoptedArchetypes(updatedAdopted);
-        localStorage.setItem('adoptedArchetypes', JSON.stringify(updatedAdopted));
-        
-        // Clear active archetype if it was this one
-        if (activeArchetype?.id === archetype.id) {
-          setActiveArchetype(null);
-          localStorage.removeItem('activeArchetype');
-        }
-        
-        loadData();
-      }
-    });
+    const confirmed = confirm(`Delete "${archetype.name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    
+    // Delete from Supabase
+    await supabase.from("archetypes").delete().eq("id", archetype.id);
+    
+    // Remove from adopted archetypes
+    const updatedAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
+    setAdoptedArchetypes(updatedAdopted);
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(updatedAdopted));
+    
+    // Clear active archetype if it was this one
+    if (activeArchetype?.id === archetype.id) {
+      setActiveArchetype(null);
+      localStorage.removeItem('activeArchetype');
+    }
+    
+    loadData();
   }
 
   async function switchToArchetype(archetype) {
@@ -1730,29 +1714,25 @@ function GlowApp({ session }) {
   }
 
   async function removeArchetype(archetype) {
-    setConfirmModal({
-      show: true,
-      message: `Remove "${archetype.name}"? This will also delete all associated tasks.`,
-      icon: '⚠️',
-      onConfirm: async () => {
-        // Delete tasks associated with this archetype
-        await supabase.from("tasks").delete().eq("archetype_id", archetype.id);
-        
-        // Delete identities associated with this archetype
-        await supabase.from("identities").delete().eq("archetype_id", archetype.id);
-        
-        const newAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
-        setAdoptedArchetypes(newAdopted);
-        localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
-        
-        if (activeArchetype?.id === archetype.id) {
-          setActiveArchetype(newAdopted[0] || null);
-          localStorage.setItem('activeArchetype', JSON.stringify(newAdopted[0] || null));
-        }
-        
-        loadData();
-      }
-    });
+    const confirmed = confirm(`Remove "${archetype.name}" from your profiles? This will also delete all associated tasks. This cannot be undone.`);
+    if (!confirmed) return;
+    
+    // Delete tasks associated with this archetype
+    await supabase.from("tasks").delete().eq("archetype_id", archetype.id);
+    
+    // Delete identities associated with this archetype
+    await supabase.from("identities").delete().eq("archetype_id", archetype.id);
+    
+    const newAdopted = adoptedArchetypes.filter(a => a.id !== archetype.id);
+    setAdoptedArchetypes(newAdopted);
+    localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
+    
+    if (activeArchetype?.id === archetype.id) {
+      setActiveArchetype(newAdopted[0] || null);
+      localStorage.setItem('activeArchetype', JSON.stringify(newAdopted[0] || null));
+    }
+    
+    loadData();
   }
 
   // Calculate category progress based on localStorage completion
@@ -2259,7 +2239,7 @@ function GlowApp({ session }) {
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
             <span className="floating-glow-score">{getTotalGlowPoints()}</span>
-            <span className="floating-glow-label">Glow Score</span>
+            <span className="floating-glow-label">Total Glow</span>
           </div>
         </div>
       ) : (
@@ -2369,33 +2349,6 @@ function GlowApp({ session }) {
             >
               Let's Glow Today! ✨
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Custom Confirmation Modal */}
-      {confirmModal.show && (
-        <div className="modal-overlay" onClick={() => setConfirmModal({ show: false, message: '', onConfirm: null })}>
-          <div className="confirm-modal" onClick={e => e.stopPropagation()}>
-            <div className="confirm-icon">{confirmModal.icon}</div>
-            <p className="confirm-message">{confirmModal.message}</p>
-            <div className="confirm-buttons">
-              <button 
-                className="confirm-cancel"
-                onClick={() => setConfirmModal({ show: false, message: '', onConfirm: null })}
-              >
-                Cancel
-              </button>
-              <button 
-                className="confirm-ok"
-                onClick={() => {
-                  if (confirmModal.onConfirm) confirmModal.onConfirm();
-                  setConfirmModal({ show: false, message: '', onConfirm: null });
-                }}
-              >
-                Yes, continue
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -2527,7 +2480,7 @@ function GlowApp({ session }) {
             <div className="profile-stats">
               <div className="stat-card">
                 <span className="stat-value">{getTotalGlowPoints()}</span>
-                <span className="stat-label">Glow Score</span>
+                <span className="stat-label">Total Glow</span>
               </div>
               <div className="stat-card">
                 <span className="stat-value">{getStreak()}</span>
@@ -2560,12 +2513,12 @@ function GlowApp({ session }) {
               
               <div className="profile-section">
                 <h3>Data</h3>
-                <button className="profile-menu-item" onClick={() => { setConfirmModal({ show: true, message: 'Download your data report?', icon: '📤', onConfirm: () => alert('Coming soon!') }); }}>
+                <button className="profile-menu-item" onClick={() => { if(confirm('Download your data?')) alert('Coming soon!'); }}>
                   <span className="menu-icon">📤</span>
                   <span className="menu-text">Download My Report</span>
                   <span className="menu-arrow">›</span>
                 </button>
-                <button className="profile-menu-item danger" onClick={() => { setConfirmModal({ show: true, message: 'Reset app? This cannot be undone.', icon: '🔄', onConfirm: () => { localStorage.clear(); alert('App reset! Please refresh.'); } }); }}>
+                <button className="profile-menu-item danger" onClick={() => { if(confirm('Reset app? This cannot be undone.')) { localStorage.clear(); alert('App reset! Please refresh.'); } }}>
                   <span className="menu-icon">🔄</span>
                   <span className="menu-text">Reset App</span>
                   <span className="menu-arrow">›</span>
@@ -2680,12 +2633,11 @@ function GlowApp({ session }) {
           activeArchetype={activeArchetype}
           adoptedArchetypes={adoptedArchetypes}
           getIdentityEmoji={getIdentityEmoji}
-          setConfirmModal={setConfirmModal}
         />
       )}
 
       {currentPage === "community" && (
-        <CommunityPage session={session} tasks={tasks} challengeRefreshKey={challengeRefreshKey} setConfirmModal={setConfirmModal} />
+        <CommunityPage session={session} tasks={tasks} challengeRefreshKey={challengeRefreshKey} />
       )}
       </>
       )}
@@ -3651,7 +3603,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
 }
 
 // Growth Page Component
-function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, adoptedArchetypes, getIdentityEmoji, setConfirmModal }) {
+function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, adoptedArchetypes, getIdentityEmoji }) {
   let displayIdentities = identities;
   
   if (activeArchetype) {
@@ -3704,16 +3656,11 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
   };
 
   const deleteGoal = (id) => {
-    setConfirmModal({
-      show: true,
-      message: 'Delete this goal?',
-      icon: '🎯',
-      onConfirm: () => {
-        const updatedGoals = goals.filter(g => g.id !== id);
-        setGoals(updatedGoals);
-        localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
-      }
-    });
+    const confirmed = confirm('Delete this goal?');
+    if (!confirmed) return;
+    const updatedGoals = goals.filter(g => g.id !== id);
+    setGoals(updatedGoals);
+    localStorage.setItem('longTermGoals', JSON.stringify(updatedGoals));
   };
 
   const saveGoalEdit = (goalId, field, value) => {
@@ -3876,7 +3823,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
 }
 
 // Community Page Component
-function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, setConfirmModal }) {
+function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   const [activeTab, setActiveTab] = useState('friends');
   const [friends, setFriends] = useState([]);
   const [friendEmail, setFriendEmail] = useState('');
@@ -4524,16 +4471,10 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, setConfir
   };
 
   const deleteGroup = (groupId) => {
-    setConfirmModal({
-      show: true,
-      message: 'Delete this group?',
-      icon: '👥',
-      onConfirm: () => {
-        const updated = groups.filter(g => g.id !== groupId);
-        setGroups(updated);
-        localStorage.setItem('accountabilityGroups', JSON.stringify(updated));
-      }
-    });
+    if (!confirm('Delete this group?')) return;
+    const updated = groups.filter(g => g.id !== groupId);
+    setGroups(updated);
+    localStorage.setItem('accountabilityGroups', JSON.stringify(updated));
   };
 
   const toggleGroupMember = (friendId) => {
