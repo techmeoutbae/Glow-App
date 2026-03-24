@@ -2396,6 +2396,9 @@ function GlowApp({ session }) {
           showAllTasks={showAllTasks}
           setShowAllTasks={setShowAllTasks}
           refreshKey={refreshKey}
+          customCategories={customCategories}
+          setCustomCategories={setCustomCategories}
+          defaultCategories={defaultCategories}
         />
       )}
 
@@ -2781,133 +2784,584 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
 }
 
 // Habits Page Component
-function HabitsPage({ tasks, pageTasks, showAllTasks, setShowAllTasks, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, refreshKey }) {
+function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks, refreshKey, customCategories, setCustomCategories, defaultCategories }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  
-  const getCompletedTaskIds = () => {
-    const todayISO = new Date().toISOString().split('T')[0];
-    const completed = new Set();
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(`task_completed_${todayISO}_`)) {
-        const taskId = key.replace(`task_completed_${todayISO}_`, '');
-        completed.add(taskId);
-      }
-    }
-    return completed;
+  const todayDate = new Date().toDateString();
+
+  const getDateForDay = (dayName) => {
+    const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
+    const targetDay = daysMap[dayName];
+    const todayObj = new Date();
+    const currentDay = todayObj.getDay();
+    const diff = (targetDay - currentDay + 7) % 7;
+    const result = new Date(todayObj);
+    result.setDate(todayObj.getDate() + diff);
+    return result.toISOString().split('T')[0];
   };
-  
-  const completedIds = getCompletedTaskIds();
-  const displayTasks = showAllTasks ? tasks : pageTasks;
-  
-  const categories = [...new Set(displayTasks.map(t => t.category || 'Other'))];
-  
+
+  const isCompletedOnDay = (taskId, dayName) => {
+    const dateStr = getDateForDay(dayName);
+    return localStorage.getItem(`task_completed_${dateStr}_${taskId}`) === 'true';
+  };
+
   return (
     <div className="habits-page">
-      <div className="page-header">
-        <h1>Habits</h1>
-        <div className="toggle-wrapper">
-          <span className={showAllTasks ? 'active' : ''}>All</span>
-          <button 
-            className="toggle-btn"
-            onClick={() => setShowAllTasks(!showAllTasks)}
+      <h1 className="title">Habits ✧</h1>
+      
+      {/* Archetype Selector with View All option */}
+      {adoptedArchetypes.length > 0 && (
+        <div className="archetype-selector">
+          <div
+            className={`archetype-chip ${showAllTasks ? 'active' : ''}`}
+            onClick={() => {
+              setShowAllTasks(true);
+              setActiveArchetype(null);
+            }}
           >
-            {showAllTasks ? '📋' : '✓'}
-          </button>
-          <span className={!showAllTasks ? 'active' : ''}>Today</span>
-        </div>
-      </div>
-      
-      {categories.map(category => {
-        const categoryTasks = displayTasks.filter(t => (t.category || 'Other') === category);
-        if (categoryTasks.length === 0) return null;
-        
-        return (
-          <div key={category} className="habits-category">
-            <h2>{category}</h2>
-            {categoryTasks.map(task => {
-              const isDone = completedIds.has(task.id);
-              return (
-                <div key={task.id} className={`habit-item ${isDone ? 'completed' : ''}`}>
-                  <div 
-                    className="habit-checkbox"
-                    onClick={() => onToggleTask(task.id, isDone, task)}
-                  >
-                    <span className="checkbox-emoji">{isDone ? '✓' : '○'}</span>
-                    <span className="habit-text">{task.title}</span>
-                  </div>
-                  <div className="habit-actions">
-                    <button className="edit-btn" onClick={() => onEditTask(task)}>✎</button>
-                    <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
-                  </div>
-                </div>
-              );
-            })}
+            ✨ View All
           </div>
-        );
-      })}
-      
-      {displayTasks.length === 0 && (
-        <p className="empty-message">No habits yet. Add some from the Home page!</p>
+          {adoptedArchetypes.map(arch => (
+            <div
+              key={arch.id}
+              className={`archetype-chip ${activeArchetype?.id === arch.id && !showAllTasks ? 'active' : ''}`}
+              onClick={() => {
+                setShowAllTasks(false);
+                setActiveArchetype(arch);
+              }}
+            >
+              {arch.emoji} {arch.name}
+            </div>
+          ))}
+        </div>
       )}
+
+      {/* Day Selector */}
+      <div className="day-selector">
+        <select 
+          className="day-select"
+          value={expandedDay || ""}
+          onChange={(e) => setExpandedDay(e.target.value || null)}
+        >
+          <option value="">Weekly View</option>
+          {days.filter(d => d !== "Today").map(d => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+        <button className="add-btn" onClick={() => setShowAddHabit(true)}>+ Add Habit</button>
+      </div>
+
+      {/* Weekly/Daily View */}
+      {!expandedDay ? (
+        <div className="calendar">
+          {days.filter(d => d !== "Today").map(day => {
+            const dayTasks = pageTasks.filter(t => {
+              const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+              return t.is_all_day || !taskDays || taskDays.includes(day);
+            });
+            
+            const isToday = day === today;
+            const displayTasks = dayTasks.slice(0, 5);
+            const hasMore = dayTasks.length > 5;
+            
+            return (
+              <div key={day} className={`day-box ${isToday ? 'today' : ''}`} onClick={() => setExpandedDay(day)}>
+                {isToday && <span className="sparkle-icon">✨</span>}
+                <h3>{day}</h3>
+                <p className="day-progress">{dayTasks.length > 0 ? `${dayTasks.filter(t => isCompletedOnDay(t.id, day)).length}/${dayTasks.length}` : 'No habits'}</p>
+                {dayTasks.length > 0 ? (
+                  <div className="day-tasks-preview">
+                    {displayTasks.map(task => (
+                      <div key={task.id} className={`task-preview ${isCompletedOnDay(task.id, day) ? 'completed' : ''}`}>
+                        {task.title}
+                      </div>
+                    ))}
+                    {hasMore && <div className="more-tasks">+{dayTasks.length - 5} more</div>}
+                  </div>
+                ) : (
+                  <p className="empty-hint">Click to add habits</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="day-view">
+          <button className="back-btn" onClick={() => setExpandedDay(null)}>← Back</button>
+          <h2>{expandedDay} {expandedDay === today && <span className="sparkle-icon">✨</span>}</h2>
+          {(() => {
+            const dayTasks = pageTasks.filter(t => {
+              const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+              return t.is_all_day || !taskDays || taskDays.includes(expandedDay);
+            });
+            
+            if (!dayTasks.length) return (
+              <div className="empty-state">
+                <p className="empty">No habits for {expandedDay}</p>
+                <button className="button" onClick={() => setShowAddHabit(true)}>+ Add a Habit</button>
+              </div>
+            );
+            
+            // Group tasks by category
+            const groupedTasks = {};
+            categoriesList.forEach(cat => {
+              groupedTasks[cat] = dayTasks.filter(t => t.category === cat);
+            });
+            // Add any tasks without a category
+            groupedTasks['Other'] = dayTasks.filter(t => !t.category || !categoriesList.includes(t.category));
+            
+            return (
+              <div className="tasks-by-category">
+                {Object.entries(groupedTasks).map(([category, catTasks]) => {
+                  if (catTasks.length === 0) return null;
+                  return (
+                    <div key={category} className="category-group">
+                      <h3 className="category-title">{category}</h3>
+                      {catTasks.map(task => {
+                          const isCompleted = isCompletedOnDay(task.id, expandedDay);
+                          return (
+                        <div key={task.id} className={`task-row ${isCompleted ? 'completed' : ''}`}>
+                          <label className="task-label">
+                            <input
+                              type="checkbox"
+                              checked={isCompleted}
+                              onChange={() => onToggleTask(task.id, isCompleted, task, getDateForDay(expandedDay))}
+                            />
+                            <span className="task-text">{task.title}</span>
+                          </label>
+                          <div className="task-actions">
+                            <button className="edit-btn" onClick={() => onEditTask(task)}>✎</button>
+                            <button className="delete-btn" onClick={() => onDeleteTask(task.id)}>×</button>
+                          </div>
+                        </div>
+                      );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Add Habit Modal */}
+      {showAddHabit && (
+        <AddHabitModal 
+          onClose={() => setShowAddHabit(false)}
+          onAdd={onAddHabit}
+          categories={categoriesList}
+          days={days}
+          identityOptions={identityOptions}
+          onAddCategory={(name) => {
+            if (!customCategories.includes(name) && !defaultCategories.includes(name)) {
+              const updated = [...customCategories, name];
+              setCustomCategories(updated);
+              localStorage.setItem('customCategories', JSON.stringify(updated));
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Add Habit Modal
+function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAddCategory }) {
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState(categories[0]);
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+
+  const handleSubmit = () => {
+    if (!title.trim()) return;
+    onAdd(title, category);
+  };
+  
+  const handleClose = () => {
+    setTitle("");
+    setCategory(categories[0]);
+    onClose();
+  };
+
+  const handleAddCategory = () => {
+    if (newCategoryName.trim() && onAddCategory) {
+      onAddCategory(newCategoryName.trim());
+      setNewCategoryName("");
+      setShowNewCategory(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={handleClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Add Habit</h2>
+          <button type="button" onClick={(e) => { e.stopPropagation(); handleClose(); }}>×</button>
+        </div>
+        <form className="modal-content" onSubmit={e => e.preventDefault()}>
+          <input
+            className="input"
+            name="habitTitle"
+            id="habitTitle"
+            placeholder="Habit title"
+            autoComplete="off"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+          />
+          <div className="category-select-wrapper">
+            <select 
+              className="input"
+              name="habitCategory"
+              id="habitCategory"
+              value={category}
+              onChange={e => {
+                if (e.target.value === "__new__") {
+                  setShowNewCategory(true);
+                  setCategory(categories[0]);
+                } else {
+                  setCategory(e.target.value);
+                }
+              }}
+            >
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__new__">+ Add New Category</option>
+            </select>
+          </div>
+          {showNewCategory && (
+            <div className="new-category-input">
+              <input
+                className="input"
+                name="newCategory"
+                id="newCategory"
+                placeholder="New category name"
+                autoComplete="off"
+                value={newCategoryName}
+                onChange={e => setNewCategoryName(e.target.value)}
+              />
+              <button type="button" className="button small" onClick={handleAddCategory}>Add</button>
+            </div>
+          )}
+          <button type="button" className="button" onClick={handleSubmit}>Add Habit</button>
+        </form>
+      </div>
     </div>
   );
 }
 
 // Insights Page Component
 function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey }) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   
-  const getCompletedTaskIds = () => {
+  // Get or set account creation date
+  const getAccountStartDate = () => {
+    let startDate = localStorage.getItem('accountStartDate');
+    if (!startDate) {
+      startDate = new Date().toISOString().split('T')[0];
+      localStorage.setItem('accountStartDate', startDate);
+    }
+    return startDate;
+  };
+
+  // Save daily average to localStorage
+  const saveDailyAverage = () => {
     const todayISO = new Date().toISOString().split('T')[0];
-    const completed = new Set();
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(`task_completed_${todayISO}_`)) {
-        const taskId = key.replace(`task_completed_${todayISO}_`, '');
-        completed.add(taskId);
+    const dailyLogKey = `daily_average_${todayISO}`;
+    
+    // Calculate today's glow score
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return;
+    
+    let totalProgress = 0;
+    let categoryCount = 0;
+    
+    for (const category of usedCategories) {
+      const categoryTasks = tasks.filter(t => t.category === category);
+      if (categoryTasks.length > 0) {
+        const completed = categoryTasks.filter(t => 
+          localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+        ).length;
+        totalProgress += (completed / categoryTasks.length) * 100;
+        categoryCount++;
       }
     }
-    return completed;
+    
+    const dailyAverage = categoryCount > 0 ? Math.round(totalProgress / categoryCount) : 0;
+    
+    // Store today's average
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    history[todayISO] = dailyAverage;
+    localStorage.setItem('progressHistory', JSON.stringify(history));
+    
+    return dailyAverage;
   };
-  
-  const completedIds = getCompletedTaskIds();
-  
+
+  // Calculate cumulative average - average of ALL days from signup to now
+  const getCumulativeAverage = () => {
+    const accountStartDate = localStorage.getItem('accountStartDate');
+    if (!accountStartDate) return 0;
+    
+    const startDate = new Date(accountStartDate);
+    const today = new Date();
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return 0;
+    
+    let totalProgress = 0;
+    let daysWithTasks = 0;
+    
+    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+      const dayStr = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      const dayTasks = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+          return taskDays?.includes(dayName);
+        }
+        return true;
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      totalProgress += (completed / dayTasks.length) * 100;
+      daysWithTasks++;
+    }
+    
+    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
+  };
+
+  // Calculate weekly average - average of ALL habits for current week
+  const getWeeklyAverage = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+    monday.setHours(0, 0, 0, 0);
+    
+    let totalProgress = 0;
+    let daysWithTasks = 0;
+    
+    const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+    if (usedCategories.length === 0) return 0;
+    
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + i);
+      
+      if (dayDate > today) continue;
+      
+      const dayStr = dayDate.toISOString().split('T')[0];
+      const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      const dayTasks = tasks.filter(t => {
+        if (!t.is_all_day) {
+          const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+          return taskDays?.includes(dayName);
+        }
+        return true;
+      });
+      
+      if (dayTasks.length === 0) continue;
+      
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
+      
+      totalProgress += (completed / dayTasks.length) * 100;
+      daysWithTasks++;
+    }
+    
+    return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
+  };
+
+  // Calculate monthly average (last 30 days)
+  const getMonthlyAverage = () => {
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    const today = new Date();
+    let total = 0;
+    let count = 0;
+    
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      if (history[dateStr] !== undefined) {
+        total += history[dateStr];
+        count++;
+      }
+    }
+    
+    return count > 0 ? Math.round(total / count) : 0;
+  };
+
+  // Save today's average when page loads
+  useEffect(() => {
+    saveDailyAverage();
+  }, [tasks]);
+
+  // Calculate category progress for today (0-100)
   const getCategoryProgress = (category) => {
-    const categoryTasks = tasks.filter(t => (t.category || 'Other') === category);
+    const todayISO = new Date().toISOString().split('T')[0];
+    const categoryTasks = tasks.filter(t => {
+      if (t.category !== category) return false;
+      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+      return taskDays?.includes(today) || t.is_all_day;
+    });
     if (categoryTasks.length === 0) return 0;
-    const completed = categoryTasks.filter(t => completedIds.has(t.id)).length;
+    const completed = categoryTasks.filter(t => 
+      localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+    ).length;
     return Math.round((completed / categoryTasks.length) * 100);
   };
-  
-  const totalTasks = tasks.length;
-  const completedTasks = completedIds.size;
-  const overallProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-  
+
+  // Get used categories
+  const getUsedCategories = () => {
+    const usedCategories = new Set(tasks.map(t => t.category).filter(Boolean));
+    return categoriesList.filter(c => usedCategories.has(c));
+  };
+
+  // Glow score is average of ALL used categories (including 0s)
+  const glowScore = () => {
+    const usedCategories = getUsedCategories();
+    if (usedCategories.length === 0) return 0;
+    const progress = usedCategories.map(c => getCategoryProgress(c));
+    return Math.round(progress.reduce((a, b) => a + b, 0) / progress.length);
+  };
+
+  // Get time period for category view
+  const [categoryTimePeriod, setCategoryTimePeriod] = useState('today');
+
+  // Get category progress based on time period
+  const getCategoryProgressByPeriod = (category, period) => {
+    const today = new Date();
+    const todayISO = today.toISOString().split('T')[0];
+    const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+    
+    const categoryTasks = tasks.filter(t => t.category === category);
+    if (categoryTasks.length === 0) return 0;
+    
+    if (period === 'today') {
+      const completed = categoryTasks.filter(t => 
+        localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+      ).length;
+      return Math.round((completed / categoryTasks.length) * 100);
+    }
+    
+    // For week/month/all - average of stored daily category averages
+    let total = 0;
+    let count = 0;
+    const days = period === 'week' ? 7 : period === 'month' ? 30 : 365;
+    
+    for (let i = 0; i < days; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const categoryKey = `category_${category}_${dateStr}`;
+      if (history[categoryKey] !== undefined) {
+        total += history[categoryKey];
+        count++;
+      }
+    }
+    
+    return count > 0 ? Math.round(total / count) : 0;
+  };
+
+  // Save daily average and category averages when toggling
+  useEffect(() => {
+    const saveCategoryAverages = () => {
+      const todayISO = new Date().toISOString().split('T')[0];
+      const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
+      if (usedCategories.length === 0) return;
+      
+      const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
+      
+      for (const category of usedCategories) {
+        const categoryTasks = tasks.filter(t => t.category === category);
+        if (categoryTasks.length > 0) {
+          const completed = categoryTasks.filter(t => 
+            localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true'
+          ).length;
+          const categoryAvg = Math.round((completed / categoryTasks.length) * 100);
+          history[`category_${category}_${todayISO}`] = categoryAvg;
+        }
+      }
+      
+      localStorage.setItem('progressHistory', JSON.stringify(history));
+    };
+    
+    saveCategoryAverages();
+  }, [tasks, refreshKey]);
+
+  const cumulativeAvg = getCumulativeAverage();
+  const weeklyAvg = getWeeklyAverage();
+  const monthlyAvg = getMonthlyAverage();
+
   return (
     <div className="insights-page">
-      <h1>Insights</h1>
+      <h1 className="title">Insights ✧</h1>
       
-      <div className="insight-card">
-        <h3>Today's Progress</h3>
-        <div className="progress-ring">
-          <span className="progress-number">{overallProgress}%</span>
+      <div className="insights-section">
+        <h2>Average Glow</h2>
+        <div className="averages-grid">
+          <div className="average-card">
+            <span className="average-label">Today</span>
+            <span className="average-value">{cumulativeAvg > 0 ? cumulativeAvg : glowScore()}%</span>
+          </div>
+          <div className="average-card">
+            <span className="average-label">Week</span>
+            <span className="average-value">{weeklyAvg}%</span>
+          </div>
+          <div className="average-card">
+            <span className="average-label">Month</span>
+            <span className="average-value">{monthlyAvg}%</span>
+          </div>
+          <div className="average-card">
+            <span className="average-label">All Time</span>
+            <span className="average-value">{cumulativeAvg}%</span>
+          </div>
         </div>
-        <p>{completedTasks} of {totalTasks} habits completed</p>
       </div>
-      
-      <div className="category-breakdown">
-        <h3>By Category</h3>
-        {categoriesList.map(category => {
-          const progress = getCategoryProgress(category);
+
+      <div className="insights-section">
+        <div className="category-time-selector">
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'today' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('today')}
+          >Today</span>
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'week' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('week')}
+          >Week</span>
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'month' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('month')}
+          >Month</span>
+          <span 
+            className={`time-chip ${categoryTimePeriod === 'all' ? 'active' : ''}`}
+            onClick={() => setCategoryTimePeriod('all')}
+          >All Time</span>
+        </div>
+        <h2>Category Progress</h2>
+        {categoriesList.map(cat => {
+          const progress = getCategoryProgressByPeriod(cat, categoryTimePeriod);
           return (
-            <div key={category} className="category-progress">
-              <span className="category-name">{category}</span>
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${progress}%` }}></div>
-              </div>
-              <span className="category-percent">{progress}%</span>
+          <div key={cat} className="category-progress">
+            <div className="category-header">
+              <span>{cat}</span>
+              <span>{progress}%</span>
             </div>
+            <div className="progress-bar">
+              <div 
+                className="progress-fill" 
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
           );
         })}
       </div>
