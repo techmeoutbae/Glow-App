@@ -385,6 +385,12 @@ function GlowApp({ session }) {
       } else {
         setOnboardingStep(null);
       }
+      // Initialize glow score cache
+      const cached = localStorage.getItem('cachedGlowScore');
+      if (!cached) {
+        const initial = getTotalGlowPoints();
+        localStorage.setItem('cachedGlowScore', initial.toString());
+      }
     }
   }, [session]);
   
@@ -411,21 +417,11 @@ function GlowApp({ session }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
   
-  // Glow score state - updates when tasks or refreshKey change
-  const [totalGlowPoints, setTotalGlowPoints] = useState(0);
-  
-  // Update glow score whenever tasks load or refreshKey changes
+  // Update glow display when refreshKey changes
+  const [glowDisplayKey, setGlowDisplayKey] = useState(0);
   useEffect(() => {
-    // Try to use cached value first for speed
-    const cached = localStorage.getItem('cachedGlowScore');
-    if (cached) {
-      setTotalGlowPoints(parseInt(cached) || 0);
-    }
-    // Always recalculate to ensure accuracy
-    const calculated = getTotalGlowPoints();
-    localStorage.setItem('cachedGlowScore', calculated.toString());
-    setTotalGlowPoints(calculated);
-  }, [tasks, refreshKey, session?.user?.id]);
+    setGlowDisplayKey(refreshKey);
+  }, [refreshKey]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
@@ -1176,15 +1172,10 @@ function GlowApp({ session }) {
         setTimeout(() => setShowGlowAnimation(false), 3000);
       }
       
-      // Calculate and store glow score in localStorage for reliability
-      const newGlow = getTotalGlowPoints();
-      localStorage.setItem('cachedGlowScore', newGlow.toString());
-      setTotalGlowPoints(newGlow);
-      
-      // Save daily average
+      // Save daily average after toggling
       saveDailyAverage();
       
-      // Force refresh
+      // Force re-render to update scores from localStorage
       setRefreshKey(k => k + 1);
       setChallengeRefreshKey(k => k + 1);
     } catch (e) {
@@ -2270,10 +2261,10 @@ function GlowApp({ session }) {
       
       {/* Floating Glow Score */}
       {!minimizeGlow ? (
-        <div className="floating-glow">
+        <div className="floating-glow" key={`glow-${glowDisplayKey}`}>
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
-            <span className="floating-glow-score">{totalGlowPoints}</span>
+            <span className="floating-glow-score">{getTotalGlowPoints()}</span>
             <span className="floating-glow-label">Glow Score</span>
           </div>
         </div>
