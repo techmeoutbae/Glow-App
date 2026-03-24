@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 import { supabase } from "./supabase";
 
@@ -411,15 +411,12 @@ function GlowApp({ session }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
   
-  // Store glow score - use ref for immediate updates
+  // Glow score state - updates when tasks change
   const [totalGlowPoints, setTotalGlowPoints] = useState(0);
-  const glowScoreRef = useRef(0);
   
-  // Update glow score whenever tasks load or refresh
+  // Update glow score whenever tasks load
   useEffect(() => {
-    const score = getTotalGlowPoints();
-    glowScoreRef.current = score;
-    setTotalGlowPoints(score);
+    setTotalGlowPoints(getTotalGlowPoints());
   }, [tasks, session?.user?.id]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
@@ -1171,16 +1168,13 @@ function GlowApp({ session }) {
         setTimeout(() => setShowGlowAnimation(false), 3000);
       }
       
-      // Recalculate and update glow score immediately
-      setTotalGlowPoints(prev => {
-        const calculated = getTotalGlowPoints();
-        return calculated;
-      });
+      // Update glow score immediately
+      setTotalGlowPoints(getTotalGlowPoints());
       
-      // Save daily average after toggling
+      // Save daily average
       saveDailyAverage();
       
-      // Force re-render
+      // Force refresh
       setRefreshKey(k => k + 1);
       setChallengeRefreshKey(k => k + 1);
     } catch (e) {
