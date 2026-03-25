@@ -415,6 +415,11 @@ function GlowApp({ session }) {
     setGlowDisplayKey(prev => prev + 1);
   }, [refreshKey]);
   
+  // Helper: get local date string (YYYY-MM-DD)
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
   
@@ -497,7 +502,7 @@ function GlowApp({ session }) {
   const [newTodo, setNewTodo] = useState("");
   const [todoCategory, setTodoCategory] = useState(() => defaultCategories[0] || "Health");
   const [todos, setTodos] = useState(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const saved = localStorage.getItem(`dailyTodos_${today}`);
     return saved ? JSON.parse(saved) : [];
   });
@@ -505,7 +510,7 @@ function GlowApp({ session }) {
   // Refresh todos when day changes (midnight reset)
   useEffect(() => {
     const checkDayChange = () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateStr();
       const saved = localStorage.getItem(`dailyTodos_${today}`);
       setTodos(saved ? JSON.parse(saved) : []);
     };
@@ -523,7 +528,7 @@ function GlowApp({ session }) {
   const calculateEndOfDayPenalty = () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayISO = yesterday.toISOString().split('T')[0];
+    const yesterdayISO = getLocalDateStr(yesterday);
     const yesterdayName = yesterday.toLocaleDateString('en-US', { weekday: 'long' });
     
     // Check if penalty already calculated for yesterday
@@ -659,14 +664,14 @@ function GlowApp({ session }) {
     if (!session?.user?.id) return;
     
     const lastRecapDate = localStorage.getItem('lastRecapDate');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     
     // Show recap only once per day (when it's a new day)
     if (lastRecapDate && lastRecapDate !== today) {
       // Calculate yesterday's stats
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayISO = yesterday.toISOString().split('T')[0];
+      const yesterdayISO = getLocalDateStr(yesterday);
       const yesterdayName = yesterday.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get yesterday's completed tasks
@@ -1184,7 +1189,7 @@ function GlowApp({ session }) {
 
   // Save daily average to localStorage
   function saveDailyAverage() {
-    const todayISO = new Date().toISOString().split('T')[0];
+    const todayISO = getLocalDateStr();
     
     // Get used categories
     const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
@@ -1216,7 +1221,7 @@ function GlowApp({ session }) {
   
   // Calculate today's glow score: +3 per habit, +1 per todo, +25 bonus for 100%
   const getGlowScore = () => {
-    const todayISO = new Date().toISOString().split('T')[0];
+    const todayISO = getLocalDateStr();
     const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     
     // Get today's habits
@@ -1295,14 +1300,18 @@ function GlowApp({ session }) {
     const accountStartDate = localStorage.getItem('accountStartDate');
     if (!accountStartDate) return 0;
     
-    const startDate = new Date(accountStartDate);
+    const [year, month, day] = accountStartDate.split('-').map(Number);
+    const startDate = new Date(year, month - 1, day);
+    startDate.setHours(0, 0, 0, 0);
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = getLocalDateStr(today);
     
     let streak = 0;
     
     // Check from today backwards
     for (let d = new Date(today); d >= startDate; d.setDate(d.getDate() - 1)) {
-      const dayStr = d.toISOString().split('T')[0];
+      const dayStr = getLocalDateStr(d);
       const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get tasks for this day
@@ -1321,7 +1330,7 @@ function GlowApp({ session }) {
       
       if (completed === dayTasks.length) {
         streak++;
-      } else if (dayStr !== today.toISOString().split('T')[0]) {
+      } else if (dayStr !== todayStr) {
         // Break if not today and not all completed
         break;
       }
@@ -1526,7 +1535,7 @@ function GlowApp({ session }) {
   
   // Daily To-do functions
   const saveTodos = (updatedTodos) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     setTodos(updatedTodos);
     localStorage.setItem(`dailyTodos_${today}`, JSON.stringify(updatedTodos));
   };
@@ -1744,7 +1753,7 @@ function GlowApp({ session }) {
   // Calculate category progress based on localStorage completion
   const getCategoryProgress = (category) => {
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-    const todayISO = new Date().toISOString().split('T')[0];
+    const todayISO = getLocalDateStr();
     const categoryTasks = tasks.filter(t => {
       if (t.category !== category) return false;
       const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
@@ -1763,7 +1772,7 @@ function GlowApp({ session }) {
     const identity = identities.find(i => i.id === identityId);
     if (!identity) return 0;
     // Use localStorage to check completion status
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const relatedTasks = tasks.filter(t => 
       t.identity_tags && t.identity_tags.includes(identityId)
     );
@@ -2654,9 +2663,12 @@ function GlowApp({ session }) {
 // Home Page Component
 function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggleTask, onDeleteTask, onEditTask, categoriesList = ["Health", "Mindset", "Finances", "Beauty"], refreshKey, todos = [], onAddTodo, onToggleTodo, onDeleteTodo, newTodo, setNewTodo, todoCategory, setTodoCategory, showTodoList, setShowTodoList, getGlowScore }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+   
   const getCompletedTaskIds = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const completed = new Set();
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -3291,19 +3303,24 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
 function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   
+  // Helper: get local date string
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  
   // Get or set account creation date
   const getAccountStartDate = () => {
     let startDate = localStorage.getItem('accountStartDate');
     if (!startDate) {
-      startDate = new Date().toISOString().split('T')[0];
+      startDate = getLocalDateStr();
       localStorage.setItem('accountStartDate', startDate);
     }
     return startDate;
   };
-
+  
   // Save daily average to localStorage
   const saveDailyAverage = () => {
-    const todayISO = new Date().toISOString().split('T')[0];
+    const todayISO = getLocalDateStr();
     const dailyLogKey = `daily_average_${todayISO}`;
     
     // Calculate today's glow score
@@ -3830,6 +3847,9 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
 
 // Community Page Component
 function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
   const [activeTab, setActiveTab] = useState('friends');
   const [friends, setFriends] = useState([]);
   const [friendEmail, setFriendEmail] = useState('');
@@ -3944,8 +3964,12 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   };
   
   // Calculate challenge progress
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  
   const calculateChallengeProgress = (challengeTitle) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const keywords = challengeKeywords[challengeTitle] || [];
     const duration = challengeDurations[challengeTitle] || 7;
@@ -3997,7 +4021,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   
   // Get detailed challenge info including matching habits
   const getChallengeDetails = (challenge) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const keywords = challengeKeywords[challenge.title] || [];
     const isStreak = challenge.title === '7-Day Glow' || challenge.title === '30-Day Glow Up';
@@ -4181,7 +4205,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
       .single();
     
     if (profile) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateStr();
       const partnerProgress = profile.partner_progress || {};
       setPartnersData(prev => ({
         ...prev,
@@ -4256,7 +4280,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
       const scores = {};
       profiles?.forEach(profile => {
         const progress = profile.partner_progress || {};
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateStr();
         scores[profile.id] = {
           todayProgress: progress[today] || 0,
           streak: progress.streak || 0,
@@ -5131,7 +5155,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
                               <h4>📋 Matching Habits ({details.matchingHabits.length})</h4>
                               <div className="matching-habits">
                                 {details.matchingHabits.map(t => {
-                                  const today = new Date().toISOString().split('T')[0];
+                                  const today = getLocalDateStr();
                                   const isDone = localStorage.getItem(`task_completed_${today}_${t.id}`) === 'true';
                                   return (
                                     <div key={t.id} className={`habit-check-item ${isDone ? 'done' : ''}`}>
