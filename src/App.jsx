@@ -1247,14 +1247,13 @@ function GlowApp({ session }) {
   // Get CUMULATIVE total glow points from signup to today
   const getTotalGlowPoints = () => {
     const accountStartDate = localStorage.getItem('accountStartDate');
-    console.log('[DEBUG getTotalGlowPoints] accountStartDate:', accountStartDate);
-    console.log('[DEBUG getTotalGlowPoints] tasks:', tasks);
     if (!accountStartDate) return 0;
     
-    const startDate = new Date(accountStartDate);
+    const [year, month, day] = accountStartDate.split('-').map(Number);
+    const startDate = new Date(year, month - 1, day);
+    startDate.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    console.log('[DEBUG getTotalGlowPoints] startDate:', startDate, 'today:', today);
     
     let total = 0;
     
@@ -1274,13 +1273,9 @@ function GlowApp({ session }) {
       if (dayTasks.length === 0) continue;
       
       // Count completed tasks
-      const completed = dayTasks.filter(t => {
-        const key = `task_completed_${dayStr}_${t.id}`;
-        const val = localStorage.getItem(key);
-        console.log('[DEBUG] Checking task', t.id, 'key:', key, 'value:', val);
-        return val === 'true';
-      }).length;
-      console.log('[DEBUG] dayStr:', dayStr, 'dayTasks:', dayTasks.length, 'completed:', completed);
+      const completed = dayTasks.filter(t => 
+        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
+      ).length;
       
       // Get todos
       const dayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${dayStr}`) || '[]');
