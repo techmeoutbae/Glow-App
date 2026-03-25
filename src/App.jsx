@@ -411,7 +411,8 @@ function GlowApp({ session }) {
   // Update glow display when refreshKey changes
   const [glowDisplayKey, setGlowDisplayKey] = useState(0);
   useEffect(() => {
-    setGlowDisplayKey(refreshKey);
+    // Use functional update to ensure we get the latest value
+    setGlowDisplayKey(prev => prev + 1);
   }, [refreshKey]);
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
@@ -2337,7 +2338,7 @@ function GlowApp({ session }) {
               )}
               <div className="recap-divider"></div>
               <div className="recap-total">
-                <span className="total-label">Net Points</span>
+                <span className="total-label">Total Glow Points</span>
                 <span className={`total-value ${recapData.total >= 0 ? 'positive' : 'negative'}`}>
                   {recapData.total >= 0 ? '+' : ''}{recapData.total}
                 </span>
