@@ -1250,6 +1250,7 @@ function GlowApp({ session }) {
   // Get CUMULATIVE total glow points from signup to today
   const getTotalGlowPoints = () => {
     const accountStartDate = localStorage.getItem('accountStartDate');
+    console.log('getTotalGlowPoints - accountStartDate:', accountStartDate);
     if (!accountStartDate) return 0;
     
     const startDate = new Date(accountStartDate);
