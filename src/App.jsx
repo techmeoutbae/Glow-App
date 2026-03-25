@@ -411,6 +411,7 @@ function GlowApp({ session }) {
   // Update glow display when refreshKey changes
   const [glowDisplayKey, setGlowDisplayKey] = useState(0);
   useEffect(() => {
+    console.log('useEffect running, refreshKey changed to:', refreshKey);
     // Use functional update to ensure we get the latest value
     setGlowDisplayKey(prev => prev + 1);
   }, [refreshKey]);
@@ -1152,6 +1153,7 @@ function GlowApp({ session }) {
   }
 
   async function toggleTask(id, completed, task = null, date = null, isTodo = false) {
+    console.log('toggleTask called, id:', id, 'completed:', completed);
     try {
       const today = date || new Date().toISOString().split('T')[0];
       const completionKey = `task_completed_${today}_${id}`;
@@ -1169,8 +1171,10 @@ function GlowApp({ session }) {
       // Save daily average after toggling
       saveDailyAverage();
       
+      console.log('About to setRefreshKey');
       // Force re-render to update scores from localStorage
       setRefreshKey(k => k + 1);
+      console.log('setRefreshKey called, new value:', k => k + 1);
       
       // Update challenge refresh key to trigger challenge progress update
       setChallengeRefreshKey(k => k + 1);
@@ -2245,7 +2249,7 @@ function GlowApp({ session }) {
         <div className="floating-glow" key={`glow-${glowDisplayKey}`}>
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
-            <span className="floating-glow-score">{getTotalGlowPoints()}</span>
+            <span className="floating-glow-score">{(() => { const score = getTotalGlowPoints(); console.log('Rendering glow score:', score); return score; })()}</span>
             <span className="floating-glow-label">Total Glow</span>
           </div>
         </div>
