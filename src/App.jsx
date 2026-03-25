@@ -786,25 +786,36 @@ function GlowApp({ session }) {
     // Ensure user profile has email and load name
     if (userId && userEmail) {
       try {
-        const today = new Date();
-        const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        
-        await supabase.from('user_profiles').upsert({
-          id: userId,
-          email: userEmail,
-          account_start_date: localDate,
-        }, { onConflict: 'id' });
-        
         // Load user's name and account start date from Supabase
         const { data: profile } = await supabase
           .from('user_profiles')
           .select('name, account_start_date')
           .eq('id', userId)
           .single();
-        if (profile?.name) setUserName(profile.name);
-        if (profile?.account_start_date && !localStorage.getItem('accountStartDate')) {
-          localStorage.setItem('accountStartDate', profile.account_start_date);
+        
+        if (profile) {
+          if (profile.name) setUserName(profile.name);
+          
+          // Sync account_start_date from Supabase to localStorage if not already set
+          if (profile.account_start_date && !localStorage.getItem('accountStartDate')) {
+            localStorage.setItem('accountStartDate', profile.account_start_date);
+          }
+          
+          // Only upsert if profile doesn't have account_start_date yet
+          if (!profile.account_start_date) {
+            const today = new Date();
+            const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            await supabase.from('user_profiles').update({
+              account_start_date: localDate
+            }).eq('id', userId);
+          }
         }
+        
+        // Also ensure email is updated
+        await supabase.from('user_profiles').upsert({
+          id: userId,
+          email: userEmail,
+        }, { onConflict: 'id' });
       } catch (e) { console.log("Profile upsert error:", e); }
     }
     
