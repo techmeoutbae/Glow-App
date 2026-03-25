@@ -1350,7 +1350,7 @@ function GlowApp({ session }) {
   
   // Share progress with accountability partner
   const shareWithPartner = async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const partnerId = localStorage.getItem('accountabilityPartner');
     if (!partnerId) return;
     
@@ -1358,7 +1358,7 @@ function GlowApp({ session }) {
     const streak = 0;
     const weeklyGlow = getWeeklyAverage ? getWeeklyAverage() : 0;
     const goals = JSON.parse(localStorage.getItem('longTermGoals') || '[]');
-    const todayISO = new Date().toISOString().split('T')[0];
+    const todayISO = getLocalDateStr();
     
     const progressData = {
       [todayISO]: dailyAvg,
@@ -1388,13 +1388,13 @@ function GlowApp({ session }) {
 
   // Helper to check if task is completed today (uses localStorage)
   const isCompletedToday = (taskId) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     return localStorage.getItem(`task_completed_${today}_${taskId}`) === 'true';
   };
 
   // Get all completed task IDs for today
   const getCompletedTaskIds = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateStr();
     const completed = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -2736,13 +2736,14 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
 
   // Calculate weekly average - average of ALL habits for current week (Mon-Sun)
   const getWeeklyAverage = () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const dayOfWeek = todayDate.getDay();
     const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     
     // Get Monday of current week
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + mondayOffset);
+    const monday = new Date(todayDate);
+    monday.setDate(todayDate.getDate() + mondayOffset);
     monday.setHours(0, 0, 0, 0);
     
     // Calculate average for each day of the week (Mon-Sun)
@@ -2758,9 +2759,9 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
       dayDate.setDate(monday.getDate() + i);
       
       // Skip future days
-      if (dayDate > today) continue;
+      if (dayDate > todayDate) continue;
       
-      const dayStr = dayDate.toISOString().split('T')[0];
+      const dayStr = getLocalDateStr(dayDate);
       const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get tasks for this day
@@ -2791,8 +2792,11 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
     const accountStartDate = localStorage.getItem('accountStartDate');
     if (!accountStartDate) return 0;
     
-    const startDate = new Date(accountStartDate);
-    const today = new Date();
+    const [year, month, day] = accountStartDate.split('-').map(Number);
+    const startDate = new Date(year, month - 1, day);
+    startDate.setHours(0, 0, 0, 0);
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
     const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
     if (usedCategories.length === 0) return 0;
     
@@ -2800,8 +2804,8 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
     let daysWithTasks = 0;
     
     // Loop through every day from signup to today
-    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
-      const dayStr = d.toISOString().split('T')[0];
+    for (let d = new Date(startDate); d <= todayDate; d.setDate(d.getDate() + 1)) {
+      const dayStr = getLocalDateStr(d);
       const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get tasks for this day
@@ -2830,12 +2834,13 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
   // Calculate streak - only counts if ALL daily habits are completed
   const getStreak = () => {
     let streak = 0;
-    const today = new Date();
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
     
     for (let i = 0; i < 365; i++) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const date = new Date(todayDate);
+      date.setDate(todayDate.getDate() - i);
+      const dateStr = getLocalDateStr(date);
       const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get tasks for this specific day
@@ -3017,6 +3022,9 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
 function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks, refreshKey, customCategories, setCustomCategories, defaultCategories }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const todayDate = new Date().toDateString();
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
 
   const getDateForDay = (dayName) => {
     const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
@@ -3026,7 +3034,7 @@ function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchet
     const diff = (targetDay - currentDay + 7) % 7;
     const result = new Date(todayObj);
     result.setDate(todayObj.getDate() + diff);
-    return result.toISOString().split('T')[0];
+    return getLocalDateStr(result);
   };
 
   const isCompletedOnDay = (taskId, dayName) => {
@@ -3365,7 +3373,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
     let daysWithTasks = 0;
     
     for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
-      const dayStr = d.toISOString().split('T')[0];
+      const dayStr = getLocalDateStr(d);
       const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
       
       const dayTasks = tasks.filter(t => {
@@ -3411,7 +3419,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
       
       if (dayDate > today) continue;
       
-      const dayStr = dayDate.toISOString().split('T')[0];
+      const dayStr = getLocalDateStr(dayDate);
       const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
       
       const dayTasks = tasks.filter(t => {
@@ -3438,14 +3446,15 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
   // Calculate monthly average (last 30 days)
   const getMonthlyAverage = () => {
     const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    const today = new Date();
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
     let total = 0;
     let count = 0;
     
     for (let i = 0; i < 30; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const date = new Date(todayDate);
+      date.setDate(todayDate.getDate() - i);
+      const dateStr = getLocalDateStr(date);
       if (history[dateStr] !== undefined) {
         total += history[dateStr];
         count++;
@@ -3462,7 +3471,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
 
   // Calculate category progress for today (0-100)
   const getCategoryProgress = (category) => {
-    const todayISO = new Date().toISOString().split('T')[0];
+    const todayISO = getLocalDateStr();
     const categoryTasks = tasks.filter(t => {
       if (t.category !== category) return false;
       const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
@@ -3494,8 +3503,9 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
 
   // Get category progress based on time period
   const getCategoryProgressByPeriod = (category, period) => {
-    const today = new Date();
-    const todayISO = today.toISOString().split('T')[0];
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const todayISO = getLocalDateStr();
     const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
     
     const categoryTasks = tasks.filter(t => t.category === category);
@@ -3514,9 +3524,9 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
     const days = period === 'week' ? 7 : period === 'month' ? 30 : 365;
     
     for (let i = 0; i < days; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const date = new Date(todayDate);
+      date.setDate(todayDate.getDate() - i);
+      const dateStr = getLocalDateStr(date);
       const categoryKey = `category_${category}_${dateStr}`;
       if (history[categoryKey] !== undefined) {
         total += history[categoryKey];
@@ -3530,7 +3540,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
   // Save daily average and category averages when toggling
   useEffect(() => {
     const saveCategoryAverages = () => {
-      const todayISO = new Date().toISOString().split('T')[0];
+      const todayISO = getLocalDateStr();
       const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
       if (usedCategories.length === 0) return;
       
@@ -3695,7 +3705,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
   };
 
   const getIdentityProgress = (identityId, identityName) => {
-    const todayISO = new Date().toISOString().split('T')[0];
+    const todayISO = getLocalDateStr();
     const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     
     const completedWithIdentity = tasks.filter(t => {
@@ -3896,12 +3906,13 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   // Calculate days completed for streak challenges (7-Day, 30-Day)
   const calculateDaysCompleted = (durationDays) => {
     const completedDays = [];
-    const today = new Date();
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
     
     for (let i = 0; i < durationDays; i++) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const date = new Date(todayDate);
+      date.setDate(todayDate.getDate() - i);
+      const dateStr = getLocalDateStr(date);
       const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get habits for this day
@@ -3929,12 +3940,13 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   // Calculate days completed for keyword-based challenges
   const calculateKeywordDaysCompleted = (keywords, durationDays) => {
     const completedDays = [];
-    const today = new Date();
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
     
     for (let i = 0; i < durationDays; i++) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const date = new Date(todayDate);
+      date.setDate(todayDate.getDate() - i);
+      const dateStr = getLocalDateStr(date);
       const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get matching habits for this day
@@ -4066,7 +4078,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
     for (let i = 0; i < duration; i++) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = getLocalDateStr(date);
       const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
       
       let dayTotal = 0;

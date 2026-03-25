@@ -1,6 +1,10 @@
 export default function DayBox({ day, tasks, onToggle, onDelete, onClick, categories = [] }) {
   const cats = categories.length > 0 ? categories : ["beauty", "vitamins", "exercise", "eating"];
   
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  
   const tasksByCategory = cats.reduce((acc, cat) => {
     acc[cat] = tasks.filter(t => t.category === cat);
     return acc;
@@ -21,7 +25,7 @@ export default function DayBox({ day, tasks, onToggle, onDelete, onClick, catego
     const diff = (targetDay - currentDay + 7) % 7;
     const result = new Date(todayObj);
     result.setDate(todayObj.getDate() + diff);
-    return result.toISOString().split('T')[0];
+    return getLocalDateStr(result);
   };
 
   const isCompletedOnDay = (taskId, dayName) => {
