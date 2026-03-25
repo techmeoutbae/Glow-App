@@ -39,9 +39,10 @@ export default function App() {
       if (error) {
         setError(error.message);
       } else {
-        // Set account start date on signup
-        const today = new Date().toISOString().split('T')[0];
-        localStorage.setItem('accountStartDate', today);
+        // Set account start date on signup - use local date
+        const today = new Date();
+        const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        localStorage.setItem('accountStartDate', localDate);
         setMessage("Check your email to verify your account!");
       }
     } else {
@@ -411,8 +412,6 @@ function GlowApp({ session }) {
   // Update glow display when refreshKey changes
   const [glowDisplayKey, setGlowDisplayKey] = useState(0);
   useEffect(() => {
-    console.log('useEffect running, refreshKey changed to:', refreshKey);
-    // Use functional update to ensure we get the latest value
     setGlowDisplayKey(prev => prev + 1);
   }, [refreshKey]);
   
@@ -772,10 +771,11 @@ function GlowApp({ session }) {
     const userId = session?.user?.id;
     const userEmail = session?.user?.email;
     
-    // Set account start date if not set (for existing users)
+    // Set account start date if not set (for existing users) - use local date
     if (!localStorage.getItem('accountStartDate')) {
-      const today = new Date().toISOString().split('T')[0];
-      localStorage.setItem('accountStartDate', today);
+      const today = new Date();
+      const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      localStorage.setItem('accountStartDate', localDate);
     }
     
     // Ensure user profile has email and load name
@@ -1153,9 +1153,9 @@ function GlowApp({ session }) {
   }
 
   async function toggleTask(id, completed, task = null, date = null, isTodo = false) {
-    console.log('toggleTask called, id:', id, 'completed:', completed);
     try {
-      const today = date || new Date().toISOString().split('T')[0];
+      const todayObj = date ? new Date(date) : new Date();
+      const today = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
       const completionKey = `task_completed_${today}_${id}`;
       
       if (completed) {
@@ -1164,19 +1164,16 @@ function GlowApp({ session }) {
         localStorage.setItem(completionKey, 'true');
         setLastCompletedType(isTodo ? 'todo' : 'habit');
         setShowGlowAnimation(true);
-        // Auto-close after 3 seconds
         setTimeout(() => setShowGlowAnimation(false), 3000);
       }
       
       // Save daily average after toggling
       saveDailyAverage();
       
-      console.log('About to setRefreshKey');
       // Force re-render to update scores from localStorage
       setRefreshKey(k => k + 1);
-      console.log('setRefreshKey called, new value:', k => k + 1);
       
-      // Update challenge refresh key to trigger challenge progress update
+      // Update challenge refresh key
       setChallengeRefreshKey(k => k + 1);
     } catch (e) {
       console.error('Toggle task error:', e);
@@ -1250,20 +1247,18 @@ function GlowApp({ session }) {
   // Get CUMULATIVE total glow points from signup to today
   const getTotalGlowPoints = () => {
     const accountStartDate = localStorage.getItem('accountStartDate');
-    console.log('getTotalGlowPoints - accountStartDate:', accountStartDate, 'tasks:', tasks.length);
     if (!accountStartDate) return 0;
     
     const startDate = new Date(accountStartDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    console.log('startDate:', startDate, 'today:', today);
-    
     let total = 0;
     
     // Loop through every day from signup to today
     for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
-      const dayStr = d.toISOString().split('T')[0];
+      // Use local date format (YYYY-MM-DD)
+      const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
       
       // Get tasks for this day
@@ -1293,10 +1288,8 @@ function GlowApp({ session }) {
       dayPoints += penalty;
       
       total += dayPoints;
-      console.log('Day:', dayStr, 'tasks:', dayTasks.length, 'completed:', completed, 'points:', dayPoints, 'total:', total);
     }
     
-    console.log('FINAL TOTAL:', total);
     return total;
   };
   
@@ -2254,7 +2247,7 @@ function GlowApp({ session }) {
         <div className="floating-glow" key={`glow-${glowDisplayKey}`}>
           <button className="floating-glow-minimize" onClick={() => setMinimizeGlow(true)}>×</button>
           <div className="floating-glow-content">
-            <span className="floating-glow-score">{(() => { const score = getTotalGlowPoints(); console.log('Rendering glow score:', score); return score; })()}</span>
+            <span className="floating-glow-score">{getTotalGlowPoints()}</span>
             <span className="floating-glow-label">Total Glow</span>
           </div>
         </div>
