@@ -1250,12 +1250,14 @@ function GlowApp({ session }) {
   // Get CUMULATIVE total glow points from signup to today
   const getTotalGlowPoints = () => {
     const accountStartDate = localStorage.getItem('accountStartDate');
-    console.log('getTotalGlowPoints - accountStartDate:', accountStartDate);
+    console.log('getTotalGlowPoints - accountStartDate:', accountStartDate, 'tasks:', tasks.length);
     if (!accountStartDate) return 0;
     
     const startDate = new Date(accountStartDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    
+    console.log('startDate:', startDate, 'today:', today);
     
     let total = 0;
     
@@ -1291,8 +1293,10 @@ function GlowApp({ session }) {
       dayPoints += penalty;
       
       total += dayPoints;
+      console.log('Day:', dayStr, 'tasks:', dayTasks.length, 'completed:', completed, 'points:', dayPoints, 'total:', total);
     }
     
+    console.log('FINAL TOTAL:', total);
     return total;
   };
   
