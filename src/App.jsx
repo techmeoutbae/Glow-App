@@ -1158,10 +1158,16 @@ function GlowApp({ session }) {
       const today = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
       const completionKey = `task_completed_${today}_${id}`;
       
+      console.log('[TOGGLE] id:', id, 'completed:', completed, 'today:', today, 'key:', completionKey);
+      console.log('[TOGGLE] task:', task);
+      console.log('[TOGGLE] All localStorage keys containing "task_completed":', Object.keys(localStorage).filter(k => k.includes('task_completed')));
+      
       if (completed) {
         localStorage.removeItem(completionKey);
+        console.log('[TOGGLE] Removed key:', completionKey);
       } else {
         localStorage.setItem(completionKey, 'true');
+        console.log('[TOGGLE] Set key:', completionKey, 'to true');
         setLastCompletedType(isTodo ? 'todo' : 'habit');
         setShowGlowAnimation(true);
         setTimeout(() => setShowGlowAnimation(false), 3000);
@@ -1247,6 +1253,16 @@ function GlowApp({ session }) {
   // Get CUMULATIVE total glow points from signup to today
   const getTotalGlowPoints = () => {
     const accountStartDate = localStorage.getItem('accountStartDate');
+    console.log('[DEBUG getTotalGlowPoints] accountStartDate:', accountStartDate);
+    console.log('[DEBUG getTotalGlowPoints] tasks.length:', tasks.length);
+    console.log('[DEBUG getTotalGlowPoints] tasks[0]:', tasks[0]);
+    console.log('[DEBUG getTotalGlowPoints] tasks[0] keys:', tasks[0] ? Object.keys(tasks[0]) : 'none');
+    
+    // Log ALL localStorage keys
+    const allKeys = Object.keys(localStorage);
+    const taskKeys = allKeys.filter(k => k.includes('task_completed'));
+    console.log('[DEBUG getTotalGlowPoints] localStorage task_completed keys:', taskKeys);
+    
     if (!accountStartDate) return 0;
     
     const [year, month, day] = accountStartDate.split('-').map(Number);
@@ -1254,14 +1270,19 @@ function GlowApp({ session }) {
     startDate.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    console.log('[DEBUG getTotalGlowPoints] startDate:', startDate, 'today:', today);
+    console.log('[DEBUG getTotalGlowPoints] startDate <= today:', startDate <= today);
     
     let total = 0;
+    let daysProcessed = 0;
     
     // Loop through every day from signup to today
     for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+      daysProcessed++;
       // Use local date format (YYYY-MM-DD)
       const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      console.log('[DEBUG] Processing dayStr:', dayStr, 'dayName:', dayName);
       
       // Get tasks for this day
       const dayTasks = tasks.filter(t => {
@@ -1269,13 +1290,18 @@ function GlowApp({ session }) {
         const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
         return taskDays?.includes(dayName);
       });
+      console.log('[DEBUG getTotalGlowPoints] dayTasks for', dayStr, ':', dayTasks.length, 'ids:', dayTasks.map(t => t.id));
       
       if (dayTasks.length === 0) continue;
       
-      // Count completed tasks
-      const completed = dayTasks.filter(t => 
-        localStorage.getItem(`task_completed_${dayStr}_${t.id}`) === 'true'
-      ).length;
+      // Count completed tasks - check each one
+      let completed = 0;
+      dayTasks.forEach(t => {
+        const key = `task_completed_${dayStr}_${t.id}`;
+        const val = localStorage.getItem(key);
+        console.log('[DEBUG getTotalGlowPoints] Checking key:', key, 'value:', val);
+        if (val === 'true') completed++;
+      });
       
       // Get todos
       const dayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${dayStr}`) || '[]');
@@ -1289,9 +1315,11 @@ function GlowApp({ session }) {
       const penalty = getDayPenalty(dayStr);
       dayPoints += penalty;
       
+      console.log('[DEBUG] dayPoints:', dayPoints, 'completed:', completed, 'completedTodos:', completedTodos);
       total += dayPoints;
     }
     
+    console.log('[DEBUG getTotalGlowPoints] FINAL TOTAL:', total, 'daysProcessed:', daysProcessed);
     return total;
   };
   
