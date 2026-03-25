@@ -771,14 +771,11 @@ function GlowApp({ session }) {
     const userId = session?.user?.id;
     const userEmail = session?.user?.email;
     
-    // Set account start date - use local date, and reset if it's in the future
-    const storedDate = localStorage.getItem('accountStartDate');
-    const today = new Date();
-    const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    
-    if (!storedDate || storedDate > localToday) {
-      console.log('[DEBUG loadData] Resetting accountStartDate from', storedDate, 'to', localToday);
-      localStorage.setItem('accountStartDate', localToday);
+    // Only set account start date if not already set (don't overwrite signup date)
+    if (!localStorage.getItem('accountStartDate')) {
+      const today = new Date();
+      const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      localStorage.setItem('accountStartDate', localDate);
     }
     
     // Ensure user profile has email and load name
