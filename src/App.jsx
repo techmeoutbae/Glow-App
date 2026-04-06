@@ -4611,6 +4611,16 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   }
   
   async function loadGlowLeaderboard() {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    
+    // First, sync current user's glow points to Supabase
+    const currentPoints = getTotalGlowPoints();
+    await supabase.from('user_profiles').update({
+      total_glow_points: currentPoints
+    }).eq('id', userId);
+    
+    // Then load the leaderboard
     const { data: profiles } = await supabase
       .from('user_profiles')
       .select('*')
