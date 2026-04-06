@@ -4104,6 +4104,17 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
   const [collapsedSections, setCollapsedSections] = useState({});
   const [showChallengeFailed, setShowChallengeFailed] = useState(null);
   const [leaderboardTab, setLeaderboardTab] = useState('streaks');
+  const [glowLeaderboardFilter, setGlowLeaderboardFilter] = useState('all'); // 'all' or 'friends'
+  
+  // Get friend's glow points from Supabase
+  const getFriendGlowPoints = async (friendId) => {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('total_glow_points')
+      .eq('id', friendId)
+      .single();
+    return profile?.total_glow_points || 0;
+  };
   
   // Challenge keywords - what habits each challenge tracks
   const challengeKeywords = {
@@ -5584,24 +5595,56 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
           {leaderboardTab === 'glow' && (
             <>
               <h2>✨ Top Glow Points</h2>
-              {glowLeaderboard.length === 0 ? (
-                <div className="empty-community">
-                  <span className="empty-icon">✨</span>
-                  <p>No glow points yet</p>
-                  <span className="empty-hint">Complete habits and todos to earn glow points and join the leaderboard!</span>
-                </div>
-              ) : (
-                <div className="leaderboard">
-                  {glowLeaderboard.map((entry, index) => (
-                    <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
-                      <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
-                      <span className="avatar">{entry.emoji || '👤'}</span>
-                      <span className="name">{entry.name || 'Glow User'}</span>
-                      <span className="streak">✨ {entry.total_glow_points || 0} pts</span>
+              <div className="leaderboard-filter">
+                <span 
+                  className={`filter-tab ${glowLeaderboardFilter === 'all' ? 'active' : ''}`}
+                  onClick={() => setGlowLeaderboardFilter('all')}
+                >
+                  All Users
+                </span>
+                <span 
+                  className={`filter-tab ${glowLeaderboardFilter === 'friends' ? 'active' : ''}`}
+                  onClick={() => setGlowLeaderboardFilter('friends')}
+                >
+                  My Friends
+                </span>
+              </div>
+              {(() => {
+                // Filter out users with 0 points
+                let filtered = glowLeaderboard.filter(e => (e.total_glow_points || 0) > 0);
+                
+                // Filter by friends if selected
+                if (glowLeaderboardFilter === 'friends') {
+                  const friendIds = friends.map(f => f.id);
+                  filtered = filtered.filter(e => friendIds.includes(e.id));
+                }
+                
+                if (filtered.length === 0) {
+                  return (
+                    <div className="empty-community">
+                      <span className="empty-icon">✨</span>
+                      <p>{glowLeaderboardFilter === 'friends' ? 'No friends on leaderboard yet' : 'No glow points yet'}</p>
+                      <span className="empty-hint">
+                        {glowLeaderboardFilter === 'friends' 
+                          ? 'Add friends to see their progress!' 
+                          : 'Complete habits and todos to earn glow points and join the leaderboard!'}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                }
+                return (
+                  <div className="leaderboard">
+                    {filtered.map((entry, index) => (
+                      <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
+                        <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
+                        <span className="avatar">{entry.emoji || '👤'}</span>
+                        <span className="name">{entry.name || 'Glow User'}</span>
+                        <span className="streak">✨ {entry.total_glow_points || 0} pts</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>

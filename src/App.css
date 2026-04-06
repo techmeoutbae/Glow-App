@@ -3822,6 +3822,29 @@ body {
   color: white;
 }
 
+.leaderboard-filter {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.leaderboard-filter .filter-tab {
+  flex: 1;
+  text-align: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.5);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.leaderboard-filter .filter-tab.active {
+  background: var(--glow-color, #9b59b6);
+  color: white;
+}
+
 .leaderboard-item {
   display: flex;
   align-items: center;
