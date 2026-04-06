@@ -1299,6 +1299,7 @@ function GlowApp({ session }) {
       }
       
       saveDailyAverage();
+      loadGlowLeaderboard();
       setRefreshKey(k => k + 1);
       setChallengeRefreshKey(k => k + 1);
     } catch (e) {
@@ -1698,6 +1699,8 @@ function GlowApp({ session }) {
       t.id === id ? { ...t, completed: !t.completed } : t
     );
     saveTodos(updatedTodos);
+    saveDailyAverage();
+    loadGlowLeaderboard();
     
     // Show glow animation when completing a todo
     if (todo && !todo.completed) {
@@ -5225,22 +5228,15 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
                   const isStreakChallenge = progress.isStreakChallenge;
                   
                   return (
-                    <div key={join.id} className="my-challenge-card">
-                      <div className="challenge-header-row">
-                        <div className="challenge-icon">{challengeEmojis[challenge.title] || '🎯'}</div>
-                        <h3>{challenge.title}</h3>
-                        <button 
-                          className="challenge-expand-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedChallengeDetail(prev => 
-                              prev?.challenge?.id === challenge.id ? null : { challenge, join }
-                            );
-                          }}
-                        >
-                          {selectedChallengeDetail?.challenge?.id === challenge.id ? '▼' : '▶'}
-                        </button>
-                      </div>
+                    <div 
+                      key={join.id} 
+                      className="my-challenge-card"
+                      onClick={() => setSelectedChallengeDetail(prev => 
+                        prev?.challenge?.id === challenge.id ? null : { challenge, join }
+                      )}
+                    >
+                      <div className="challenge-icon">{challengeEmojis[challenge.title] || '🎯'}</div>
+                      <h3>{challenge.title}</h3>
                       {progress.total > 0 || isStreakChallenge ? (
                         <>
                           <div className="challenge-days-progress">
@@ -5577,24 +5573,30 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
           {leaderboardTab === 'glow' && (
             <>
               <h2>✨ Top Glow Points</h2>
-              {glowLeaderboard.length === 0 ? (
-                <div className="empty-community">
-                  <span className="empty-icon">✨</span>
-                  <p>No glow points yet</p>
-                  <span className="empty-hint">Complete habits and todos to earn glow points!</span>
-                </div>
-              ) : (
-                <div className="leaderboard">
-                  {glowLeaderboard.map((entry, index) => (
-                    <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
-                      <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
-                      <span className="avatar">{entry.emoji || '👤'}</span>
-                      <span className="name">{entry.name || 'Glow User'}</span>
-                      <span className="streak">✨ {entry.total_glow_points || 0} pts</span>
+              {(() => {
+                const filteredLeaderboard = glowLeaderboard.filter(e => (e.total_glow_points || 0) > 0);
+                if (filteredLeaderboard.length === 0) {
+                  return (
+                    <div className="empty-community">
+                      <span className="empty-icon">✨</span>
+                      <p>No glow points yet</p>
+                      <span className="empty-hint">Complete habits and todos to earn glow points and join the leaderboard!</span>
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                }
+                return (
+                  <div className="leaderboard">
+                    {filteredLeaderboard.map((entry, index) => (
+                      <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
+                        <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
+                        <span className="avatar">{entry.emoji || '👤'}</span>
+                        <span className="name">{entry.name || 'Glow User'}</span>
+                        <span className="streak">✨ {entry.total_glow_points || 0} pts</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
