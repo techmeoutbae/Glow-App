@@ -101,43 +101,89 @@ function OnboardingWelcome({ onNext, onSkip }) {
       <div className="onboarding-content">
         <span className="onboarding-emoji">✨</span>
         <h1 className="onboarding-title">Welcome to Glow</h1>
-        <p className="onboarding-subtitle">Build habits through identity</p>
+        <p className="onboarding-subtitle">Your journey to becoming your best self starts here</p>
+        
+        <div className="onboarding-intro">
+          <p>Glow is a habit tracking app that helps you build lasting habits by connecting them to the identity you want to embody. Every habit you complete brings you closer to becoming the person you aspire to be.</p>
+        </div>
         
         <div className="onboarding-cards">
           <div className="onboarding-card">
             <span className="card-icon">🎯</span>
-            <h3>Choose Your Archetype</h3>
-            <p>Select an archetype that represents who you want to become</p>
+            <h3>Archetypes</h3>
+            <p>Choose an archetype that represents who you want to become - each comes with preset habits and identities to help you get started</p>
           </div>
           
           <div className="onboarding-card">
-            <span className="card-icon">💎</span>
-            <h3>Build Your Identity</h3>
-            <p>Each habit you complete reinforces the identity you're building</p>
+            <span className="card-icon">💪</span>
+            <h3>Habits</h3>
+            <p>Create habits you want to build. Mark them complete daily to earn glow points and reinforce your identity</p>
           </div>
           
           <div className="onboarding-card">
             <span className="card-icon">✨</span>
-            <h3>Earn Glow Points</h3>
-            <p>+3 per habit, +1 per todo, +25 bonus at 100% completion!</p>
+            <h3>Glow Points</h3>
+            <p>Earn +3 points per habit, +1 per todo, +25 bonus for 100% daily completion. Unlock avatars as you earn more points!</p>
           </div>
           
           <div className="onboarding-card">
             <span className="card-icon">📝</span>
             <h3>Daily To-Do List</h3>
-            <p>Add quick tasks that reset at midnight and count toward your glow</p>
+            <p>Quick tasks that reset at midnight. Great for one-off tasks or habits you don't do every day</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">🎯</span>
+            <h3>Challenges</h3>
+            <p>Join 7-30 day challenges to build specific habits. Complete them to earn 100 bonus glow points!</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">🔥</span>
+            <h3>Streaks</h3>
+            <p>Build consistency by completing all your habits each day. Streaks unlock achievement levels (Sparkle, Aura, Full Glow)</p>
           </div>
           
           <div className="onboarding-card">
             <span className="card-icon">👥</span>
-            <h3>Stay Accountable</h3>
-            <p>Connect with friends to share progress and motivate each other</p>
+            <h3>Friends & Community</h3>
+            <p>Add friends to see their progress, join challenges together, and motivate each other</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">🤝</span>
+            <h3>Accountability Partners</h3>
+            <p>Designate friends as partners to get nudges when you need a push to complete your habits</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">📊</span>
+            <h3>Insights</h3>
+            <p>Track your progress with daily, weekly, monthly averages. See which categories you're strongest in</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">🌱</span>
+            <h3>Growth</h3>
+            <p>Set long-term goals and track your identities. See how your identity evolves as you complete habits</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">👑</span>
+            <h3>Profile & Avatars</h3>
+            <p>Your avatar evolves as you earn glow points. Start as a Seed (0 pts) and progress to Legend (5000+ pts)</p>
+          </div>
+          
+          <div className="onboarding-card">
+            <span className="card-icon">🏆</span>
+            <h3>Leaderboard</h3>
+            <p>Compare your streaks and glow points with other users in the community</p>
           </div>
         </div>
 
         <div className="onboarding-buttons">
           <button className="button primary" onClick={onNext}>
-            Get Started
+            Let's Get Started
           </button>
           <button className="button text" onClick={onSkip}>
             Skip for now
@@ -342,11 +388,38 @@ function GlowApp({ session }) {
   const [userName, setUserName] = useState("");
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [friends, setFriends] = useState([]);
+  const [selectedAvatar, setSelectedAvatar] = useState(() => localStorage.getItem('selectedAvatar') || null);
+  
+  // Avatar tiers based on glow points
+  const avatarTiers = [
+    { id: 'seed', emoji: '🌱', name: 'Seed', minPoints: 0, unlocked: true },
+    { id: 'sprout', emoji: '🌿', name: 'Sprout', minPoints: 50, unlocked: true },
+    { id: 'bud', emoji: '🌷', name: 'Bud', minPoints: 150, unlocked: false },
+    { id: 'bloom', emoji: '🌸', name: 'Bloom', minPoints: 350, unlocked: false },
+    { id: 'glow', emoji: '✨', name: 'Glow', minPoints: 600, unlocked: false },
+    { id: 'star', emoji: '🌟', name: 'Star', minPoints: 1000, unlocked: false },
+    { id: 'crown', emoji: '👑', name: 'Crown', minPoints: 2000, unlocked: false },
+    { id: 'legend', emoji: '🏆', name: 'Legend', minPoints: 5000, unlocked: false },
+  ];
+  
+  const getCurrentAvatar = () => {
+    const totalPoints = getTotalGlowPoints();
+    // Find the highest tier the user has unlocked
+    for (let i = avatarTiers.length - 1; i >= 0; i--) {
+      if (totalPoints >= avatarTiers[i].minPoints) {
+        return avatarTiers[i];
+      }
+    }
+    return avatarTiers[0];
+  };
+  
+  const currentAvatar = selectedAvatar ? avatarTiers.find(a => a.id === selectedAvatar) : getCurrentAvatar();
   
   // Main navigation: home, habits, insights, growth, community
   const [currentPage, setCurrentPage] = useState("home");
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showAvatarSelector, setShowAvatarSelector] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [showAddIdentity, setShowAddIdentity] = useState(false);
   const [showArchetypeModal, setShowArchetypeModal] = useState(false);
@@ -414,6 +487,9 @@ function GlowApp({ session }) {
   useEffect(() => {
     setGlowDisplayKey(prev => prev + 1);
   }, [refreshKey]);
+  
+  // DEBUG: Set this to true to disable midnight/recap logic
+  const DEBUG_DISABLE_MIDNIGHT = false;
   
   // Helper: get local date string (YYYY-MM-DD)
   const getLocalDateStr = (date = new Date()) => {
@@ -509,14 +585,33 @@ function GlowApp({ session }) {
   
   // Refresh todos when day changes (midnight reset)
   useEffect(() => {
+    if (DEBUG_DISABLE_MIDNIGHT) return;
+    
+    let lastCheckTime = 0;
+    const CHECK_COOLDOWN = 60000; // 1 minute cooldown
+    
     const checkDayChange = () => {
+      const now = new Date();
+      const nowTime = Date.now();
+      
+      // Only run near midnight (between 00:00 and 00:10)
+      const isNearMidnight = now.getHours() === 0 && now.getMinutes() < 10;
+      
+      if (!isNearMidnight) return;
+      if (nowTime - lastCheckTime < CHECK_COOLDOWN) return;
+      lastCheckTime = nowTime;
+      
+      console.log('[DEBUG] Midnight check triggered at:', new Date().toLocaleString());
       const today = getLocalDateStr();
       const saved = localStorage.getItem(`dailyTodos_${today}`);
+      console.log('[DEBUG] Loading todos for:', today);
       setTodos(saved ? JSON.parse(saved) : []);
     };
     
     const now = new Date();
-    const msUntilMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0) - now;
+    const midnightTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+    const msUntilMidnight = midnightTomorrow - now;
+    console.log('[DEBUG] Midnight timer set for:', midnightTomorrow.toLocaleString(), 'in', msUntilMidnight, 'ms');
     const midnightTimer = setTimeout(checkDayChange, msUntilMidnight);
     
     return () => clearTimeout(midnightTimer);
@@ -568,36 +663,53 @@ function GlowApp({ session }) {
     const penalties = JSON.parse(localStorage.getItem('dailyPenalties') || '{}');
     return penalties[dateISO] || 0;
   };
-  
+   
   // Midnight reset - runs at user's local midnight (12 AM)
   useEffect(() => {
+    if (DEBUG_DISABLE_MIDNIGHT) return;
+    
+    let lastResetTime = 0;
+    const RESET_COOLDOWN = 60000; // 1 minute cooldown between resets
+    
     const checkMidnight = () => {
       const now = new Date();
       const today = now.toDateString();
       const lastReset = localStorage.getItem('lastResetDate');
       
-      // Reset at midnight (when date changes)
-      if (lastReset !== today) {
-        // Calculate penalty for yesterday before resetting
+      // Only reset if it's actually near midnight (between 00:00 and 00:05)
+      const isNearMidnight = now.getHours() === 0 && now.getMinutes() < 5;
+      
+      console.log('[DEBUG] checkMidnight:', { now: now.toLocaleString(), today, lastReset, isNearMidnight });
+      
+      // Reset at midnight (when date changes AND we're near midnight)
+      if (lastReset !== today && isNearMidnight) {
+        const nowTime = Date.now();
+        // Cooldown to prevent multiple resets
+        if (nowTime - lastResetTime < RESET_COOLDOWN) {
+          console.log('[DEBUG] Skipping reset - too soon since last reset');
+          return;
+        }
+        lastResetTime = nowTime;
+        
+        console.log('[DEBUG] MIDNIGHT RESET TRIGGERED');
         calculateEndOfDayPenalty();
         
         localStorage.setItem('lastResetDate', today);
         
-        // Trigger re-render to refresh all daily data
         setRefreshKey(k => k + 1);
-        
-        // Reload data from Supabase
         loadData();
+      } else if (lastReset !== today && !isNearMidnight) {
+        console.log('[DEBUG] Date changed, updating lastResetDate to:', today);
+        localStorage.setItem('lastResetDate', today);
       }
     };
     
-    // Check immediately on load
     checkMidnight();
     
-    // Set up interval to check every minute
     const interval = setInterval(checkMidnight, 60000);
     return () => clearInterval(interval);
-  }, [loadData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   // Helper to safely parse days JSON
   const parseDays = (daysValue) => {
@@ -661,13 +773,22 @@ function GlowApp({ session }) {
 
   // Check for daily recap on app load
   useEffect(() => {
+    if (DEBUG_DISABLE_MIDNIGHT) return;
     if (!session?.user?.id) return;
     
     const lastRecapDate = localStorage.getItem('lastRecapDate');
     const today = getLocalDateStr();
+    const now = new Date();
+    
+    // Only show recap near midnight (between 00:00 and 00:10)
+    const isNearMidnight = now.getHours() === 0 && now.getMinutes() < 10;
+    if (!isNearMidnight) return;
+    
+    console.log('[DEBUG] Recap check:', { lastRecapDate, today, now: now.toISOString(), localHour: now.getHours() });
     
     // Show recap only once per day (when it's a new day)
     if (lastRecapDate && lastRecapDate !== today) {
+      console.log('[DEBUG] New day detected for recap, showing recap');
       // Calculate yesterday's stats
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
@@ -885,10 +1006,10 @@ function GlowApp({ session }) {
 
   async function adoptArchetype(archetype) {
     setSelectedArchetype(archetype);
-    setTemplateHabits(arch.template_habits || []);
+    setTemplateHabits(archetype.template_habits || []);
     // Set default identities from archetype
-    if (arch.default_identities && arch.default_identities.length > 0) {
-      setTemplateIdentities(arch.default_identities.map(name => ({ name, emoji: '✨' })));
+    if (archetype.default_identities && archetype.default_identities.length > 0) {
+      setTemplateIdentities(archetype.default_identities.map(name => ({ name, emoji: '✨' })));
     } else {
       setTemplateIdentities([]);
     }
@@ -1308,6 +1429,9 @@ function GlowApp({ session }) {
   
   // Get streak - consecutive days with positive glow points
   const getStreak = () => {
+    const debugStreak = parseInt(localStorage.getItem('debugStreakDays') || '0', 10);
+    if (debugStreak > 0) return debugStreak;
+    
     const accountStartDate = localStorage.getItem('accountStartDate');
     if (!accountStartDate) return 0;
     
@@ -1320,10 +1444,13 @@ function GlowApp({ session }) {
     
     let streak = 0;
     
-    // Check from today backwards
+    // Check from today backwards (but skip today - day isn't over yet)
     for (let d = new Date(today); d >= startDate; d.setDate(d.getDate() - 1)) {
       const dayStr = getLocalDateStr(d);
       const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // Skip today - don't count the current day until it's over
+      if (dayStr === todayStr) continue;
       
       // Get tasks for this day
       const dayTasks = tasks.filter(t => {
@@ -1341,8 +1468,8 @@ function GlowApp({ session }) {
       
       if (completed === dayTasks.length) {
         streak++;
-      } else if (dayStr !== todayStr) {
-        // Break if not today and not all completed
+      } else {
+        // Streak broken
         break;
       }
     }
@@ -2402,6 +2529,47 @@ function GlowApp({ session }) {
         </div>
       )}
 
+      {/* Avatar Selector Modal */}
+      {showAvatarSelector && (
+        <div className="modal-overlay" onClick={() => setShowAvatarSelector(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Choose Your Avatar</h2>
+              <button onClick={() => setShowAvatarSelector(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              <p className="modal-hint">Current glow points: {getTotalGlowPoints()}</p>
+              <div className="avatar-grid">
+                {avatarTiers.map(tier => {
+                  const totalPoints = getTotalGlowPoints();
+                  const isUnlocked = totalPoints >= tier.minPoints;
+                  const isSelected = selectedAvatar === tier.id || (!selectedAvatar && tier.id === getCurrentAvatar().id);
+                  
+                  return (
+                    <div 
+                      key={tier.id}
+                      className={`avatar-option ${isUnlocked ? 'unlocked' : 'locked'} ${isSelected ? 'selected' : ''}`}
+                      onClick={() => {
+                        if (isUnlocked) {
+                          setSelectedAvatar(tier.id);
+                          localStorage.setItem('selectedAvatar', tier.id);
+                          setShowAvatarSelector(false);
+                        }
+                      }}
+                    >
+                      <span className="avatar-emoji">{tier.emoji}</span>
+                      <span className="avatar-name">{tier.name}</span>
+                      <span className="avatar-points">{tier.minPoints}+ pts</span>
+                      {!isUnlocked && <span className="avatar-lock">🔒</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Habit Modal */}
       {showEditHabit && editingHabit && (
         <div className="modal-overlay" onClick={() => setShowEditHabit(false)}>
@@ -2496,11 +2664,12 @@ function GlowApp({ session }) {
           <div className="profile-modal" onClick={e => e.stopPropagation()} key={`profile-${glowDisplayKey}`}>
             <div className="profile-header">
               <button className="profile-close" onClick={() => setShowProfile(false)}>×</button>
-              <div className="profile-avatar">
-                {userName ? userName.charAt(0).toUpperCase() : '👤'}
+              <div className="profile-avatar" onClick={() => setShowAvatarSelector(true)} style={{ cursor: 'pointer' }}>
+                {currentAvatar?.emoji || '👤'}
               </div>
               <h2 className="profile-name">{userName || 'Guest'}</h2>
               <p className="profile-email">{session?.user?.email}</p>
+              <p className="profile-rank">{currentAvatar?.name} · {getTotalGlowPoints()} pts</p>
             </div>
             
             <div className="profile-stats">
@@ -2525,6 +2694,11 @@ function GlowApp({ session }) {
             <div className="profile-sections">
               <div className="profile-section">
                 <h3>Account</h3>
+                <button className="profile-menu-item" onClick={() => { setShowProfile(false); setShowAvatarSelector(true); }}>
+                  <span className="menu-icon">👤</span>
+                  <span className="menu-text">Change Avatar</span>
+                  <span className="menu-arrow">›</span>
+                </button>
                 <button className="profile-menu-item" onClick={() => { setShowProfile(false); setShowProfileEdit(true); }}>
                   <span className="menu-icon">✏️</span>
                   <span className="menu-text">Edit Profile</span>
@@ -2647,6 +2821,7 @@ function GlowApp({ session }) {
           categoriesList={categoriesList}
           days={days}
           refreshKey={refreshKey}
+          identities={identities}
         />
       )}
 
@@ -2866,6 +3041,10 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
       // If no tasks for this day, skip
       if (tasksForDay.length === 0) continue;
       
+      // Don't count today (the day isn't over yet)
+      const isToday = i === 0;
+      if (isToday) continue;
+      
       // Check if ALL tasks are completed
       let allCompleted = true;
       for (const task of tasksForDay) {
@@ -2876,14 +3055,10 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
         }
       }
       
-      // Don't count today if it's still ongoing (no streak yet)
-      const isToday = i === 0;
-      const now = new Date();
-      const isAfter8PM = now.getHours() >= 20;
-      
-      if (allCompleted && (!isToday || isAfter8PM)) {
+      if (allCompleted) {
         streak++;
-      } else if (i > 0) {
+      } else {
+        // Streak broken
         break;
       }
     }
@@ -3319,12 +3494,30 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
 }
 
 // Insights Page Component
-function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey }) {
+function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey, identities = [] }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   
   // Helper: get local date string
   const getLocalDateStr = (date = new Date()) => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  
+  // Get identity score (points earned from tasks with this identity tag)
+  const getIdentityScore = (identityId) => {
+    const todayISO = getLocalDateStr();
+    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    
+    const completedWithIdentity = tasks.filter(t => {
+      if (t.is_all_day) return true;
+      const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
+      if (!taskDays?.includes(todayName)) return false;
+      return localStorage.getItem(`task_completed_${todayISO}_${t.id}`) === 'true';
+    }).filter(t => {
+      const tags = t.identity_tags || [];
+      return tags.some(tag => tag === identityId);
+    });
+    
+    return completedWithIdentity.length * 3;
   };
   
   // Get or set account creation date
@@ -3642,12 +3835,34 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey 
           );
         })}
       </div>
+      
+      {identities.length > 0 && (
+        <div className="insights-section">
+          <h2>My Identities</h2>
+          <div className="identities-insights-list">
+            {identities.slice(0, 10).map(id => {
+              const score = getIdentityScore(id.id);
+              return (
+                <div key={id.id} className="identity-insights-item">
+                  <span className="identity-emoji">{id.emoji || '✨'}</span>
+                  <span className="identity-name">{id.name}</span>
+                  <span className="identity-points">{score} pts today</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // Growth Page Component
 function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, adoptedArchetypes, getIdentityEmoji }) {
+  const getLocalDateStr = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  
   let displayIdentities = identities;
   
   if (activeArchetype) {
@@ -3878,9 +4093,13 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   const [challenges, setChallenges] = useState([]);
   const [joinedChallenges, setJoinedChallenges] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [glowLeaderboard, setGlowLeaderboard] = useState([]);
   const [showJoinChallenge, setShowJoinChallenge] = useState(null);
   const [challengeProgress, setChallengeProgress] = useState({});
   const [selectedChallengeDetail, setSelectedChallengeDetail] = useState(null);
+  const [collapsedSections, setCollapsedSections] = useState({});
+  const [showChallengeFailed, setShowChallengeFailed] = useState(null);
+  const [leaderboardTab, setLeaderboardTab] = useState('streaks');
   
   // Challenge keywords - what habits each challenge tracks
   const challengeKeywords = {
@@ -3987,10 +4206,6 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
   };
   
   // Calculate challenge progress
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
-  
   const calculateChallengeProgress = (challengeTitle) => {
     const today = getLocalDateStr();
     const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
@@ -4203,11 +4418,13 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
     loadFriends();
     loadChallenges();
     loadLeaderboard();
+    loadGlowLeaderboard();
     loadNudges();
     
     const refreshInterval = setInterval(() => {
       loadFriends();
       loadNudges();
+      loadGlowLeaderboard();
     }, 30000); // Refresh every 30 seconds
     
     return () => clearInterval(refreshInterval);
@@ -4386,6 +4603,51 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
         profile: profiles?.find(p => p.id === s.user_id)
       }));
       setLeaderboard(merged);
+    }
+  }
+  
+  async function loadGlowLeaderboard() {
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .order('total_glow_points', { ascending: false })
+      .limit(10);
+    
+    if (profiles) {
+      setGlowLeaderboard(profiles);
+    }
+  }
+  
+  function handleChallengeComplete(challengeId) {
+    const currentBonus = parseInt(localStorage.getItem('bonusGlowPoints') || '0', 10);
+    localStorage.setItem('bonusGlowPoints', String(currentBonus + 100));
+    alert('🎉 Challenge Complete! You earned 100 glow points!');
+    loadGlowLeaderboard();
+  }
+  
+  async function restartChallenge(joinId) {
+    const { error } = await supabase
+      .from('challenge_participants')
+      .update({ joined_at: new Date().toISOString() })
+      .eq('id', joinId);
+    
+    if (!error) {
+      loadChallenges();
+      setShowChallengeFailed(null);
+    }
+  }
+  
+  async function quitChallenge(joinId) {
+    if (!confirm('Are you sure you want to quit this challenge?')) return;
+    
+    const { error } = await supabase
+      .from('challenge_participants')
+      .delete()
+      .eq('id', joinId);
+    
+    if (!error) {
+      loadChallenges();
+      setShowChallengeFailed(null);
     }
   }
 
@@ -4962,31 +5224,38 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
                   const isStreakChallenge = progress.isStreakChallenge;
                   
                   return (
-                    <div key={join.id} className="my-challenge-card clickable" onClick={() => setSelectedChallengeDetail({ challenge, join })}>
-                      <div className="challenge-icon">{challengeEmojis[challenge.title] || '🎯'}</div>
-                      <h3>{challenge.title}</h3>
+                    <div key={join.id} className="my-challenge-card">
+                      <div className="challenge-header-row">
+                        <div className="challenge-icon">{challengeEmojis[challenge.title] || '🎯'}</div>
+                        <h3>{challenge.title}</h3>
+                        <button 
+                          className="challenge-expand-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedChallengeDetail(prev => 
+                              prev?.challenge?.id === challenge.id ? null : { challenge, join }
+                            );
+                          }}
+                        >
+                          {selectedChallengeDetail?.challenge?.id === challenge.id ? '▼' : '▶'}
+                        </button>
+                      </div>
                       {progress.total > 0 || isStreakChallenge ? (
                         <>
-                          <div className="challenge-progress">
-                            <div className="progress-bar">
-                              <div 
-                                className="progress-fill glow-progress" 
-                                style={{ width: `${progress.percentage}%` }}
-                              />
-                            </div>
-                            <span>{progress.percentage}%</span>
+                          <div className="challenge-days-progress">
+                            <span className="days-completed">🔥 {progress.daysCompleted}/{progress.totalDays} days</span>
                           </div>
-                          <span className="progress-detail">
-                            🔥 {progress.daysCompleted}/{progress.totalDays} days completed
-                          </span>
-                          {progress.daysCompleted > 0 && (
-                            <span className="streak-info">Keep it going!</span>
-                          )}
+                          <div className="challenge-progress-bar">
+                            <div 
+                              className="progress-fill glow-progress" 
+                              style={{ width: `${Math.min(100, (progress.daysCompleted / progress.totalDays) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="days-left">{daysLeft} days left</span>
                         </>
                       ) : (
                         <p className="no-matching-habits">Add matching habits to track!</p>
                       )}
-                      <span className="days-left">{daysLeft} days left</span>
                     </div>
                   );
                 })}
@@ -5143,12 +5412,23 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
                     ) : (
                       <>
                         <div className="detail-section">
-                          <h4>💡 Keywords Tracked</h4>
-                          <div className="keywords-list">
-                            {details.keywords.map(k => (
-                              <span key={k} className="keyword-tag">{k}</span>
-                            ))}
-                          </div>
+                          <h4 
+                            className="collapsible-header"
+                            onClick={() => {
+                              const key = `keywords-${challenge.id}`;
+                              setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
+                            }}
+                          >
+                            💡 Keywords Tracked 
+                            <span className="collapse-icon">{collapsedSections[`keywords-${challenge.id}`] ? '▶' : '▼'}</span>
+                          </h4>
+                          {collapsedSections[`keywords-${challenge.id}`] !== true && (
+                            <div className="keywords-list">
+                              {details.keywords.map(k => (
+                                <span key={k} className="keyword-tag">{k}</span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         
                         {details.matchingHabits.length > 0 ? (
@@ -5203,6 +5483,18 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
                       <span className="duration-badge">📅 {challenge.duration_days} days</span>
                       <span className="participants-badge">👥 {challenge.totalParticipants || 0} joined</span>
                     </div>
+                    
+                    {progress.daysCompleted > 0 && progress.daysCompleted >= progress.totalDays && (
+                      <button 
+                        className="button challenge-complete-btn"
+                        onClick={() => {
+                          handleChallengeComplete(challenge.id);
+                          setSelectedChallengeDetail(null);
+                        }}
+                      >
+                        🎉 Complete Challenge (+100 pts)
+                      </button>
+                    )}
                   </>
                 );
               })()}
@@ -5210,27 +5502,99 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
           </div>
         </div>
       )}
+      
+      {/* Challenge Failed Modal */}
+      {showChallengeFailed && (
+        <div className="modal-overlay" onClick={() => setShowChallengeFailed(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>😢 Challenge Failed</h2>
+              <button onClick={() => setShowChallengeFailed(null)}>×</button>
+            </div>
+            <div className="modal-content">
+              <p>You missed a day in your streak challenge. What would you like to do?</p>
+              <div className="challenge-failed-buttons">
+                <button 
+                  className="button"
+                  onClick={() => restartChallenge(showChallengeFailed.id)}
+                >
+                  🔄 Restart Challenge
+                </button>
+                <button 
+                  className="button secondary"
+                  onClick={() => quitChallenge(showChallengeFailed.id)}
+                >
+                  ❌ Quit Challenge
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeTab === 'leaderboard' && (
         <div className="community-section">
-          <h2>🏆 Top Streaks</h2>
-          {leaderboard.length === 0 ? (
-            <div className="empty-community">
-              <span className="empty-icon">🔥</span>
-              <p>No streaks yet</p>
-              <span className="empty-hint">Complete your habits daily to get on the board!</span>
-            </div>
-          ) : (
-            <div className="leaderboard">
-              {leaderboard.map((entry, index) => (
-                <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
-                  <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
-                  <span className="avatar">{entry.profile?.emoji || '👤'}</span>
-                  <span className="name">{entry.profile?.name || 'Glow User'}</span>
-                  <span className="streak">🔥 {entry.streak_count} days</span>
+          <div className="leaderboard-tabs">
+            <span 
+              className={`leaderboard-tab ${leaderboardTab === 'streaks' ? 'active' : ''}`}
+              onClick={() => setLeaderboardTab('streaks')}
+            >
+              🔥 Streaks
+            </span>
+            <span 
+              className={`leaderboard-tab ${leaderboardTab === 'glow' ? 'active' : ''}`}
+              onClick={() => setLeaderboardTab('glow')}
+            >
+              ✨ Glow Points
+            </span>
+          </div>
+          
+          {leaderboardTab === 'streaks' && (
+            <>
+              <h2>🏆 Top Streaks</h2>
+              {leaderboard.length === 0 ? (
+                <div className="empty-community">
+                  <span className="empty-icon">🔥</span>
+                  <p>No streaks yet</p>
+                  <span className="empty-hint">Complete your habits daily to get on the board!</span>
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div className="leaderboard">
+                  {leaderboard.map((entry, index) => (
+                    <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
+                      <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
+                      <span className="avatar">{entry.profile?.emoji || '👤'}</span>
+                      <span className="name">{entry.profile?.name || 'Glow User'}</span>
+                      <span className="streak">🔥 {entry.streak_count} days</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          
+          {leaderboardTab === 'glow' && (
+            <>
+              <h2>✨ Top Glow Points</h2>
+              {glowLeaderboard.length === 0 ? (
+                <div className="empty-community">
+                  <span className="empty-icon">✨</span>
+                  <p>No glow points yet</p>
+                  <span className="empty-hint">Complete habits and todos to earn glow points!</span>
+                </div>
+              ) : (
+                <div className="leaderboard">
+                  {glowLeaderboard.map((entry, index) => (
+                    <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
+                      <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
+                      <span className="avatar">{entry.emoji || '👤'}</span>
+                      <span className="name">{entry.name || 'Glow User'}</span>
+                      <span className="streak">✨ {entry.total_glow_points || 0} pts</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
