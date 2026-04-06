@@ -4614,21 +4614,34 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
     const userId = session?.user?.id;
     if (!userId) return;
     
-    // First, sync current user's glow points to Supabase
-    const currentPoints = getTotalGlowPoints();
-    await supabase.from('user_profiles').update({
-      total_glow_points: currentPoints
-    }).eq('id', userId);
-    
-    // Then load the leaderboard
-    const { data: profiles } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .order('total_glow_points', { ascending: false })
-      .limit(10);
-    
-    if (profiles) {
-      setGlowLeaderboard(profiles);
+    try {
+      // First, sync current user's glow points to Supabase
+      const currentPoints = getTotalGlowPoints();
+      console.log('[DEBUG] Syncing points to Supabase:', currentPoints);
+      
+      const { error: updateError } = await supabase.from('user_profiles').update({
+        total_glow_points: currentPoints
+      }).eq('id', userId);
+      
+      if (updateError) {
+        console.error('[DEBUG] Error updating points:', updateError);
+      }
+      
+      // Then load the leaderboard
+      const { data: profiles, error: selectError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .order('total_glow_points', { ascending: false })
+        .limit(10);
+      
+      if (selectError) {
+        console.error('[DEBUG] Error loading leaderboard:', selectError);
+      }
+      
+      console.log('[DEBUG] Loaded profiles:', profiles);
+      setGlowLeaderboard(profiles || []);
+    } catch (err) {
+      console.error('[DEBUG] loadGlowLeaderboard error:', err);
     }
   }
   
@@ -5584,8 +5597,8 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
             <>
               <h2>✨ Top Glow Points</h2>
               {(() => {
-                const filteredLeaderboard = glowLeaderboard.filter(e => (e.total_glow_points || 0) > 0);
-                if (filteredLeaderboard.length === 0) {
+                console.log('[DEBUG] Glow leaderboard:', glowLeaderboard);
+                if (glowLeaderboard.length === 0) {
                   return (
                     <div className="empty-community">
                       <span className="empty-icon">✨</span>
@@ -5596,7 +5609,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
                 }
                 return (
                   <div className="leaderboard">
-                    {filteredLeaderboard.map((entry, index) => (
+                    {glowLeaderboard.map((entry, index) => (
                       <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
                         <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
                         <span className="avatar">{entry.emoji || '👤'}</span>
