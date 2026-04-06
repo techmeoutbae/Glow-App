@@ -402,19 +402,6 @@ function GlowApp({ session }) {
     { id: 'legend', emoji: '🏆', name: 'Legend', minPoints: 5000, unlocked: false },
   ];
   
-  const getCurrentAvatar = () => {
-    const totalPoints = getTotalGlowPoints();
-    // Find the highest tier the user has unlocked
-    for (let i = avatarTiers.length - 1; i >= 0; i--) {
-      if (totalPoints >= avatarTiers[i].minPoints) {
-        return avatarTiers[i];
-      }
-    }
-    return avatarTiers[0];
-  };
-  
-  const currentAvatar = selectedAvatar ? avatarTiers.find(a => a.id === selectedAvatar) : getCurrentAvatar();
-  
   // Main navigation: home, habits, insights, growth, community
   const [currentPage, setCurrentPage] = useState("home");
   const [showSettings, setShowSettings] = useState(false);
@@ -1424,7 +1411,9 @@ function GlowApp({ session }) {
       total += dayPoints;
     }
     
-    return total;
+    // Add bonus points
+    const bonusPoints = parseInt(localStorage.getItem('bonusGlowPoints') || '0', 10);
+    return total + bonusPoints;
   };
   
   // Get streak - consecutive days with positive glow points
@@ -1476,6 +1465,18 @@ function GlowApp({ session }) {
     
     return streak;
   };
+  
+  const getCurrentAvatar = () => {
+    const totalPoints = getTotalGlowPoints();
+    for (let i = avatarTiers.length - 1; i >= 0; i--) {
+      if (totalPoints >= avatarTiers[i].minPoints) {
+        return avatarTiers[i];
+      }
+    }
+    return avatarTiers[0];
+  };
+  
+  const currentAvatar = selectedAvatar ? avatarTiers.find(a => a.id === selectedAvatar) : getCurrentAvatar();
   
   // Get weekly average glow points
   const getWeeklyAverage = () => {
