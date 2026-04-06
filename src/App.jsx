@@ -4615,33 +4615,21 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
     if (!userId) return;
     
     try {
-      // First, sync current user's glow points to Supabase
       const currentPoints = getTotalGlowPoints();
-      console.log('[DEBUG] Syncing points to Supabase:', currentPoints);
       
-      const { error: updateError } = await supabase.from('user_profiles').update({
+      await supabase.from('user_profiles').update({
         total_glow_points: currentPoints
       }).eq('id', userId);
       
-      if (updateError) {
-        console.error('[DEBUG] Error updating points:', updateError);
-      }
-      
-      // Then load the leaderboard
-      const { data: profiles, error: selectError } = await supabase
+      const { data: profiles } = await supabase
         .from('user_profiles')
         .select('*')
         .order('total_glow_points', { ascending: false })
         .limit(10);
       
-      if (selectError) {
-        console.error('[DEBUG] Error loading leaderboard:', selectError);
-      }
-      
-      console.log('[DEBUG] Loaded profiles:', profiles);
       setGlowLeaderboard(profiles || []);
     } catch (err) {
-      console.error('[DEBUG] loadGlowLeaderboard error:', err);
+      console.error('loadGlowLeaderboard error:', err);
     }
   }
   
@@ -5596,30 +5584,24 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
           {leaderboardTab === 'glow' && (
             <>
               <h2>✨ Top Glow Points</h2>
-              {(() => {
-                console.log('[DEBUG] Glow leaderboard:', glowLeaderboard);
-                if (glowLeaderboard.length === 0) {
-                  return (
-                    <div className="empty-community">
-                      <span className="empty-icon">✨</span>
-                      <p>No glow points yet</p>
-                      <span className="empty-hint">Complete habits and todos to earn glow points and join the leaderboard!</span>
+              {glowLeaderboard.length === 0 ? (
+                <div className="empty-community">
+                  <span className="empty-icon">✨</span>
+                  <p>No glow points yet</p>
+                  <span className="empty-hint">Complete habits and todos to earn glow points and join the leaderboard!</span>
+                </div>
+              ) : (
+                <div className="leaderboard">
+                  {glowLeaderboard.map((entry, index) => (
+                    <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
+                      <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
+                      <span className="avatar">{entry.emoji || '👤'}</span>
+                      <span className="name">{entry.name || 'Glow User'}</span>
+                      <span className="streak">✨ {entry.total_glow_points || 0} pts</span>
                     </div>
-                  );
-                }
-                return (
-                  <div className="leaderboard">
-                    {glowLeaderboard.map((entry, index) => (
-                      <div key={entry.id} className={`leaderboard-item rank-${index + 1}`}>
-                        <span className="rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</span>
-                        <span className="avatar">{entry.emoji || '👤'}</span>
-                        <span className="name">{entry.name || 'Glow User'}</span>
-                        <span className="streak">✨ {entry.total_glow_points || 0} pts</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
