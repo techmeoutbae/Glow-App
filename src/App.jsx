@@ -2842,7 +2842,7 @@ function GlowApp({ session }) {
       )}
 
       {currentPage === "community" && (
-        <CommunityPage session={session} tasks={tasks} challengeRefreshKey={challengeRefreshKey} />
+        <CommunityPage session={session} tasks={tasks} challengeRefreshKey={challengeRefreshKey} getTotalGlowPoints={getTotalGlowPoints} />
       )}
       </>
       )}
@@ -4086,7 +4086,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
 }
 
 // Community Page Component
-function CommunityPage({ session, tasks = [], challengeRefreshKey = 0 }) {
+function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalGlowPoints }) {
   const getLocalDateStr = (date = new Date()) => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
