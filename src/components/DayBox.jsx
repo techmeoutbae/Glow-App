@@ -1,10 +1,11 @@
+import {
+  getDateStrForWeekday,
+  getWeekdayName,
+} from "../dateUtils";
+
 export default function DayBox({ day, tasks, onToggle, onDelete, onClick, categories = [] }) {
   const cats = categories.length > 0 ? categories : ["beauty", "vitamins", "exercise", "eating"];
-  
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
-  
+
   const tasksByCategory = cats.reduce((acc, cat) => {
     acc[cat] = tasks.filter(t => t.category === cat);
     return acc;
@@ -14,22 +15,11 @@ export default function DayBox({ day, tasks, onToggle, onDelete, onClick, catego
 
   const formatCategory = (cat) => cat.charAt(0).toUpperCase() + cat.slice(1);
   
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const today = getWeekdayName();
   const isToday = day === today;
 
-  const getDateForDay = (dayName) => {
-    const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
-    const targetDay = daysMap[dayName];
-    const todayObj = new Date();
-    const currentDay = todayObj.getDay();
-    const diff = (targetDay - currentDay + 7) % 7;
-    const result = new Date(todayObj);
-    result.setDate(todayObj.getDate() + diff);
-    return getLocalDateStr(result);
-  };
-
   const isCompletedOnDay = (taskId, dayName) => {
-    const dateStr = getDateForDay(dayName);
+    const dateStr = getDateStrForWeekday(dayName);
     return localStorage.getItem(`task_completed_${dateStr}_${taskId}`) === 'true';
   };
   

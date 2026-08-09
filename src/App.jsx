@@ -1,11 +1,33 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 import { supabase } from "./supabase";
+import {
+  addDaysToDateStr,
+  formatMonthDayDateStr,
+  getDateStrDaysAgo,
+  getDateStrForWeekday,
+  getDateStrFromValue,
+  getLocalDateStr,
+  getMsUntilNextUserMidnight,
+  getStartOfWeekDateStr,
+  getUserTimeZone,
+  getWeekdayName,
+  getWeekdayNameForDateStr,
+} from "./dateUtils";
 
 const logError = (operation, result) => {
   if (result?.error) {
     console.error(`[${operation}] Error:`, result.error.message, 'Details:', result.error.details, 'Hint:', result.error.hint);
   }
+};
+
+const uniqueById = (items = []) => {
+  const seen = new Set();
+  return items.filter(item => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 };
 
 export default function App() {
@@ -39,10 +61,7 @@ export default function App() {
       if (error) {
         setError(error.message);
       } else {
-        // Set account start date on signup - use local date
-        const today = new Date();
-        const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        localStorage.setItem('accountStartDate', localDate);
+        localStorage.setItem('accountStartDate', getLocalDateStr());
         setMessage("Check your email to verify your account!");
       }
     } else {
@@ -462,7 +481,7 @@ function GlowApp({ session }) {
   // Track which archetypes user has adopted
   const [adoptedArchetypes, setAdoptedArchetypes] = useState(() => {
     const saved = localStorage.getItem('adoptedArchetypes');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? uniqueById(JSON.parse(saved)) : [];
   });
    
    // Force refresh after task toggle
@@ -477,11 +496,7 @@ function GlowApp({ session }) {
   
   // DEBUG: Set this to true to disable midnight/recap logic
   const DEBUG_DISABLE_MIDNIGHT = false;
-  
-  // Helper: get local date string (YYYY-MM-DD)
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
+  const appTimeZone = getUserTimeZone();
   
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
@@ -570,48 +585,21 @@ function GlowApp({ session }) {
     return saved ? JSON.parse(saved) : [];
   });
   
-  // Refresh todos when day changes (midnight reset)
+  // Keep the visible checklist aligned to the current user-timezone day.
   useEffect(() => {
     if (DEBUG_DISABLE_MIDNIGHT) return;
-    
-    let lastCheckTime = 0;
-    const CHECK_COOLDOWN = 60000; // 1 minute cooldown
-    
-    const checkDayChange = () => {
-      const now = new Date();
-      const nowTime = Date.now();
-      
-      // Only run near midnight (between 00:00 and 00:10)
-      const isNearMidnight = now.getHours() === 0 && now.getMinutes() < 10;
-      
-      if (!isNearMidnight) return;
-      if (nowTime - lastCheckTime < CHECK_COOLDOWN) return;
-      lastCheckTime = nowTime;
-      
-      console.log('[DEBUG] Midnight check triggered at:', new Date().toLocaleString());
-      const today = getLocalDateStr();
-      const saved = localStorage.getItem(`dailyTodos_${today}`);
-      console.log('[DEBUG] Loading todos for:', today);
-      setTodos(saved ? JSON.parse(saved) : []);
-    };
-    
-    const now = new Date();
-    const midnightTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
-    const msUntilMidnight = midnightTomorrow - now;
-    console.log('[DEBUG] Midnight timer set for:', midnightTomorrow.toLocaleString(), 'in', msUntilMidnight, 'ms');
-    const midnightTimer = setTimeout(checkDayChange, msUntilMidnight);
-    
-    return () => clearTimeout(midnightTimer);
-  }, []);
+
+    const today = getLocalDateStr(new Date(), appTimeZone);
+    const saved = localStorage.getItem(`dailyTodos_${today}`);
+    setTodos(saved ? JSON.parse(saved) : []);
+  }, [appTimeZone, refreshKey]);
 
   const days = ["Today", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   
   // Calculate end-of-day penalty for yesterday's incomplete tasks
-  const calculateEndOfDayPenalty = () => {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayISO = getLocalDateStr(yesterday);
-    const yesterdayName = yesterday.toLocaleDateString('en-US', { weekday: 'long' });
+  const calculateEndOfDayPenalty = (dateISO = addDaysToDateStr(getLocalDateStr(), -1)) => {
+    const yesterdayISO = dateISO;
+    const yesterdayName = getWeekdayNameForDateStr(yesterdayISO);
     
     // Check if penalty already calculated for yesterday
     const penalties = JSON.parse(localStorage.getItem('dailyPenalties') || '{}');
@@ -651,52 +639,51 @@ function GlowApp({ session }) {
     return penalties[dateISO] || 0;
   };
    
-  // Midnight reset - runs at user's local midnight (12 AM)
+  // Midnight reset - runs at 12:00 AM in the user's timezone, falling back to EST.
   useEffect(() => {
     if (DEBUG_DISABLE_MIDNIGHT) return;
-    
-    let lastResetTime = 0;
-    const RESET_COOLDOWN = 60000; // 1 minute cooldown between resets
-    
-    const checkMidnight = () => {
-      const now = new Date();
-      const today = now.toDateString();
+
+    let midnightTimer;
+
+    const runDailyReset = () => {
+      const today = getLocalDateStr(new Date(), appTimeZone);
       const lastReset = localStorage.getItem('lastResetDate');
-      
-      // Only reset if it's actually near midnight (between 00:00 and 00:05)
-      const isNearMidnight = now.getHours() === 0 && now.getMinutes() < 5;
-      
-      console.log('[DEBUG] checkMidnight:', { now: now.toLocaleString(), today, lastReset, isNearMidnight });
-      
-      // Reset at midnight (when date changes AND we're near midnight)
-      if (lastReset !== today && isNearMidnight) {
-        const nowTime = Date.now();
-        // Cooldown to prevent multiple resets
-        if (nowTime - lastResetTime < RESET_COOLDOWN) {
-          console.log('[DEBUG] Skipping reset - too soon since last reset');
-          return;
-        }
-        lastResetTime = nowTime;
-        
-        console.log('[DEBUG] MIDNIGHT RESET TRIGGERED');
-        calculateEndOfDayPenalty();
-        
-        localStorage.setItem('lastResetDate', today);
-        
-        setRefreshKey(k => k + 1);
-        loadData();
-      } else if (lastReset !== today && !isNearMidnight) {
-        console.log('[DEBUG] Date changed, updating lastResetDate to:', today);
-        localStorage.setItem('lastResetDate', today);
-      }
+
+      if (lastReset === today) return;
+
+      calculateEndOfDayPenalty(addDaysToDateStr(today, -1));
+      localStorage.setItem('lastResetDate', today);
+
+      const saved = localStorage.getItem(`dailyTodos_${today}`);
+      setTodos(saved ? JSON.parse(saved) : []);
+      setRefreshKey(k => k + 1);
+      loadData();
+    };
+
+    const scheduleNextMidnight = () => {
+      const delay = getMsUntilNextUserMidnight(new Date(), appTimeZone) + 1000;
+      midnightTimer = setTimeout(() => {
+        runDailyReset();
+        scheduleNextMidnight();
+      }, delay);
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) runDailyReset();
     };
     
-    checkMidnight();
+    runDailyReset();
+    scheduleNextMidnight();
+    window.addEventListener('focus', runDailyReset);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    const interval = setInterval(checkMidnight, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(midnightTimer);
+      window.removeEventListener('focus', runDailyReset);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [appTimeZone, session?.user?.id]);
   
   // Helper to safely parse days JSON
   const parseDays = (daysValue) => {
@@ -764,23 +751,12 @@ function GlowApp({ session }) {
     if (!session?.user?.id) return;
     
     const lastRecapDate = localStorage.getItem('lastRecapDate');
-    const today = getLocalDateStr();
-    const now = new Date();
-    
-    // Only show recap near midnight (between 00:00 and 00:10)
-    const isNearMidnight = now.getHours() === 0 && now.getMinutes() < 10;
-    if (!isNearMidnight) return;
-    
-    console.log('[DEBUG] Recap check:', { lastRecapDate, today, now: now.toISOString(), localHour: now.getHours() });
+    const today = getLocalDateStr(new Date(), appTimeZone);
     
     // Show recap only once per day (when it's a new day)
     if (lastRecapDate && lastRecapDate !== today) {
-      console.log('[DEBUG] New day detected for recap, showing recap');
-      // Calculate yesterday's stats
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayISO = getLocalDateStr(yesterday);
-      const yesterdayName = yesterday.toLocaleDateString('en-US', { weekday: 'long' });
+      const yesterdayISO = addDaysToDateStr(today, -1);
+      const yesterdayName = getWeekdayNameForDateStr(yesterdayISO);
       
       // Get yesterday's completed tasks
       const yesterdayTasks = tasks.filter(t => {
@@ -797,11 +773,6 @@ function GlowApp({ session }) {
       const yesterdayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${yesterdayISO}`) || '[]');
       const completedTodos = yesterdayTodos.filter(t => t.completed).length;
       
-      // Calculate earned points
-      const earned = (completedCount * 3) + completedTodos;
-      if (completedCount === yesterdayTasks.length && yesterdayTasks.length > 0) {
-        earned + 25;
-      }
       const earnedPoints = (completedCount * 3) + completedTodos + (completedCount === yesterdayTasks.length && yesterdayTasks.length > 0 ? 25 : 0);
       
       // Get penalty
@@ -822,7 +793,7 @@ function GlowApp({ session }) {
     } else if (!lastRecapDate) {
       localStorage.setItem('lastRecapDate', today);
     }
-  }, [session, tasks]);
+  }, [session, tasks, appTimeZone]);
 
   useEffect(() => {
     // Only auto-show onboarding on initial load, not when switching archetypes
@@ -886,9 +857,7 @@ function GlowApp({ session }) {
     
     // Only set account start date if not already set (don't overwrite signup date)
     if (!localStorage.getItem('accountStartDate')) {
-      const today = new Date();
-      const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      localStorage.setItem('accountStartDate', localDate);
+      localStorage.setItem('accountStartDate', getLocalDateStr(new Date(), appTimeZone));
     }
     
     // Ensure user profile has email and load name
@@ -911,10 +880,8 @@ function GlowApp({ session }) {
           
           // Only upsert if profile doesn't have account_start_date yet
           if (!profile.account_start_date) {
-            const today = new Date();
-            const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             await supabase.from('user_profiles').update({
-              account_start_date: localDate
+              account_start_date: getLocalDateStr(new Date(), appTimeZone)
             }).eq('id', userId);
           }
         }
@@ -1010,27 +977,13 @@ function GlowApp({ session }) {
     const userId = session?.user?.id;
     if (!userId) return;
     
-    // Check if tasks already exist for this archetype
+    // Check if tasks already exist for this archetype, but still ensure identities exist.
     const { data: existingTasks } = await supabase
       .from("tasks")
       .select("id")
       .eq("archetype_id", selectedArchetype.id)
       .eq("user_id", userId);
-    
-    if (existingTasks && existingTasks.length > 0) {
-      // Tasks already exist, just finish without creating duplicates
-      const newAdopted = adoptedArchetypes.find(a => a.id === selectedArchetype.id)
-        ? adoptedArchetypes
-        : [...adoptedArchetypes, selectedArchetype];
-      setAdoptedArchetypes(newAdopted);
-      localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
-      localStorage.setItem('hasCompletedOnboarding', 'true');
-      setOnboardingStep(null);
-      setSelectedArchetype(null);
-      setTemplateHabits([]);
-      setIsAdopting(false);
-      return;
-    }
+    const hasExistingTasks = existingTasks && existingTasks.length > 0;
     
     const identityEmojis = {
       'NOURISHED': '🥗',
@@ -1062,11 +1015,16 @@ function GlowApp({ session }) {
     const createdIdentities = [];
     if (!userId) return;
     
-    // Combine default identities with template identities
-    const allIdentityNames = [
-      ...(selectedArchetype.default_identities || []),
-      ...templateIdentities.map(i => i.name)
-    ];
+    const requestedIdentityNames = templateIdentities.length > 0
+      ? templateIdentities.map(i => i.name)
+      : (selectedArchetype.default_identities || []);
+    const allIdentityNames = Array.from(
+      new Map(
+        requestedIdentityNames
+          .filter(Boolean)
+          .map(name => [name.trim().toUpperCase(), name.trim()])
+      ).values()
+    );
     
     console.log("Creating identities:", { 
       defaultIdentities: selectedArchetype.default_identities,
@@ -1125,8 +1083,12 @@ function GlowApp({ session }) {
       }
     }
 
-    // Track adopted archetype
-    const newAdopted = [...adoptedArchetypes, selectedArchetype];
+    // Track adopted archetype once.
+    const newAdopted = uniqueById(
+      adoptedArchetypes.find(a => a.id === selectedArchetype.id)
+        ? adoptedArchetypes
+        : [...adoptedArchetypes, selectedArchetype]
+    );
     setAdoptedArchetypes(newAdopted);
     localStorage.setItem('adoptedArchetypes', JSON.stringify(newAdopted));
 
@@ -1147,6 +1109,17 @@ function GlowApp({ session }) {
     );
     localStorage.setItem('adoptedArchetypes', JSON.stringify(updatedArchetypes));
     setAdoptedArchetypes(updatedArchetypes);
+
+    if (hasExistingTasks) {
+      setOnboardingStep(null);
+      setIsEditingArchetype(false);
+      localStorage.setItem('hasCompletedOnboarding', 'true');
+      setSelectedArchetype(null);
+      setTemplateHabits([]);
+      setIsAdopting(false);
+      await loadData();
+      return;
+    }
 
     for (const habit of templateHabits) {
       if (!habit.title?.trim()) continue;
@@ -1177,7 +1150,6 @@ function GlowApp({ session }) {
     setSelectedArchetype(null);
     setTemplateHabits([]);
     setIsAdopting(false);
-    setIdentities([]);
     await loadData();
   }
 
@@ -1226,7 +1198,7 @@ function GlowApp({ session }) {
     if (!habitTitle?.trim()) return;
     
     const actualDay = taskDay === "Today" 
-      ? new Date().toLocaleDateString('en-US', { weekday: 'long' })
+      ? getWeekdayName(new Date(), appTimeZone)
       : taskDay;
 
     const page = (habitCategory === "Work" || habitCategory === "School") ? "work" : currentPage;
@@ -1285,8 +1257,7 @@ function GlowApp({ session }) {
 
   async function toggleTask(id, completed, task = null, date = null, isTodo = false) {
     try {
-      const todayObj = date ? new Date(date) : new Date();
-      const today = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
+      const today = getDateStrFromValue(date, appTimeZone);
       const completionKey = `task_completed_${today}_${id}`;
       
       if (completed) {
@@ -1299,7 +1270,7 @@ function GlowApp({ session }) {
       }
       
       saveDailyAverage();
-      loadGlowLeaderboard();
+      await syncTotalGlowPoints();
       setRefreshKey(k => k + 1);
       setChallengeRefreshKey(k => k + 1);
     } catch (e) {
@@ -1309,7 +1280,7 @@ function GlowApp({ session }) {
 
   // Save daily average to localStorage
   function saveDailyAverage() {
-    const todayISO = getLocalDateStr();
+    const todayISO = getLocalDateStr(new Date(), appTimeZone);
     
     // Get used categories
     const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
@@ -1341,8 +1312,8 @@ function GlowApp({ session }) {
   
   // Calculate today's glow score: +3 per habit, +1 per todo, +25 bonus for 100%
   const getGlowScore = () => {
-    const todayISO = getLocalDateStr();
-    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const todayISO = getLocalDateStr(new Date(), appTimeZone);
+    const todayName = getWeekdayName(new Date(), appTimeZone);
     
     // Get today's habits
     const todayTasks = tasks.filter(t => {
@@ -1376,17 +1347,14 @@ function GlowApp({ session }) {
     const accountStartDate = localStorage.getItem('accountStartDate');
     if (!accountStartDate) return 0;
     
-    const [year, month, day] = accountStartDate.split('-').map(Number);
-    const startDate = new Date(year, month - 1, day);
-    startDate.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
     let total = 0;
     
-    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
-      const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+    for (
+      let dayStr = accountStartDate, todayStr = getLocalDateStr(new Date(), appTimeZone);
+      dayStr <= todayStr;
+      dayStr = addDaysToDateStr(dayStr, 1)
+    ) {
+      const dayName = getWeekdayNameForDateStr(dayStr);
       
       const dayTasks = tasks.filter(t => {
         if (t.is_all_day) return true;
@@ -1416,6 +1384,19 @@ function GlowApp({ session }) {
     const bonusPoints = parseInt(localStorage.getItem('bonusGlowPoints') || '0', 10);
     return total + bonusPoints;
   };
+
+  async function syncTotalGlowPoints() {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    try {
+      await supabase.from('user_profiles').update({
+        total_glow_points: getTotalGlowPoints()
+      }).eq('id', userId);
+    } catch (err) {
+      console.error('syncTotalGlowPoints error:', err);
+    }
+  }
   
   // Get streak - consecutive days with positive glow points
   const getStreak = () => {
@@ -1425,19 +1406,13 @@ function GlowApp({ session }) {
     const accountStartDate = localStorage.getItem('accountStartDate');
     if (!accountStartDate) return 0;
     
-    const [year, month, day] = accountStartDate.split('-').map(Number);
-    const startDate = new Date(year, month - 1, day);
-    startDate.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = getLocalDateStr(today);
+    const todayStr = getLocalDateStr(new Date(), appTimeZone);
     
     let streak = 0;
     
     // Check from today backwards (but skip today - day isn't over yet)
-    for (let d = new Date(today); d >= startDate; d.setDate(d.getDate() - 1)) {
-      const dayStr = getLocalDateStr(d);
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+    for (let dayStr = todayStr; dayStr >= accountStartDate; dayStr = addDaysToDateStr(dayStr, -1)) {
+      const dayName = getWeekdayNameForDateStr(dayStr);
       
       // Skip today - don't count the current day until it's over
       if (dayStr === todayStr) continue;
@@ -1528,13 +1503,13 @@ function GlowApp({ session }) {
 
   // Helper to check if task is completed today (uses localStorage)
   const isCompletedToday = (taskId) => {
-    const today = getLocalDateStr();
+    const today = getLocalDateStr(new Date(), appTimeZone);
     return localStorage.getItem(`task_completed_${today}_${taskId}`) === 'true';
   };
 
   // Get all completed task IDs for today
   const getCompletedTaskIds = () => {
-    const today = getLocalDateStr();
+    const today = getLocalDateStr(new Date(), appTimeZone);
     const completed = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -1675,7 +1650,7 @@ function GlowApp({ session }) {
   
   // Daily To-do functions
   const saveTodos = (updatedTodos) => {
-    const today = getLocalDateStr();
+    const today = getLocalDateStr(new Date(), appTimeZone);
     setTodos(updatedTodos);
     localStorage.setItem(`dailyTodos_${today}`, JSON.stringify(updatedTodos));
   };
@@ -1700,7 +1675,7 @@ function GlowApp({ session }) {
     );
     saveTodos(updatedTodos);
     saveDailyAverage();
-    loadGlowLeaderboard();
+    syncTotalGlowPoints();
     
     // Show glow animation when completing a todo
     if (todo && !todo.completed) {
@@ -1838,6 +1813,7 @@ function GlowApp({ session }) {
       }
       
       setTemplateHabits(habits || []);
+      setTemplateIdentities(archetype.default_identities?.map(name => ({ name, emoji: 'âœ¨' })) || []);
       setSelectedArchetype(archetype);
     }
   }
