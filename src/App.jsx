@@ -2859,6 +2859,7 @@ function GlowApp({ session }) {
           days={days}
           refreshKey={refreshKey}
           identities={identities}
+          appTimeZone={appTimeZone}
         />
       )}
 
@@ -3503,13 +3504,13 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
 }
 
 // Insights Page Component
-function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey, identities = [] }) {
-  const today = getWeekdayName();
+function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey, identities = [], appTimeZone }) {
+  const today = getWeekdayName(new Date(), appTimeZone);
   
-  // Get identity score (points earned from tasks with this identity tag)
+// Get identity score (points earned from tasks with this identity tag)
   const getIdentityScore = (identityId) => {
-    const todayISO = getLocalDateStr();
-    const todayName = getWeekdayName();
+    const todayISO = getLocalDateStr(new Date(), appTimeZone);
+    const todayName = getWeekdayName(new Date(), appTimeZone);
     
     const completedWithIdentity = tasks.filter(t => {
       if (t.is_all_day) return true;
@@ -3528,7 +3529,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
   const getAccountStartDate = () => {
     let startDate = localStorage.getItem('accountStartDate');
     if (!startDate) {
-      startDate = getLocalDateStr();
+      startDate = getLocalDateStr(new Date(), appTimeZone);
       localStorage.setItem('accountStartDate', startDate);
     }
     return startDate;
@@ -3575,11 +3576,11 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
     const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
     if (usedCategories.length === 0) return 0;
     
-    let totalProgress = 0;
+let totalProgress = 0;
     let daysWithTasks = 0;
     
     for (
-      let dayStr = accountStartDate, todayDateStr = getLocalDateStr();
+      let dayStr = accountStartDate, todayDateStr = getLocalDateStr(new Date(), appTimeZone);
       dayStr <= todayDateStr;
       dayStr = addDaysToDateStr(dayStr, 1)
     ) {
@@ -3606,10 +3607,10 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
     return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
   };
 
-  // Calculate weekly average - average of ALL habits for current week
+// Calculate weekly average - average of ALL habits for current week
   const getWeeklyAverage = () => {
-    const todayDateStr = getLocalDateStr();
-    const mondayDateStr = getStartOfWeekDateStr();
+    const todayDateStr = getLocalDateStr(new Date(), appTimeZone);
+    const mondayDateStr = getStartOfWeekDateStr(new Date(), appTimeZone);
     
     let totalProgress = 0;
     let daysWithTasks = 0;
@@ -3645,10 +3646,10 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
     return daysWithTasks > 0 ? Math.round(totalProgress / daysWithTasks) : 0;
   };
 
-  // Calculate monthly average (last 30 days)
+// Calculate monthly average (last 30 days)
   const getMonthlyAverage = () => {
     const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    const todayDateStr = getLocalDateStr();
+    const todayDateStr = getLocalDateStr(new Date(), appTimeZone);
     let total = 0;
     let count = 0;
     
@@ -3666,11 +3667,11 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
   // Save today's average when page loads
   useEffect(() => {
     saveDailyAverage();
-  }, [tasks]);
+  }, [tasks, appTimeZone]);
 
   // Calculate category progress for today (0-100)
   const getCategoryProgress = (category) => {
-    const todayISO = getLocalDateStr();
+    const todayISO = getLocalDateStr(new Date(), appTimeZone);
     const categoryTasks = tasks.filter(t => {
       if (t.category !== category) return false;
       const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
@@ -3700,9 +3701,9 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
   // Get time period for category view
   const [categoryTimePeriod, setCategoryTimePeriod] = useState('today');
 
-  // Get category progress based on time period
+// Get category progress based on time period
   const getCategoryProgressByPeriod = (category, period) => {
-    const todayISO = getLocalDateStr();
+    const todayISO = getLocalDateStr(new Date(), appTimeZone);
     const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
     
     const categoryTasks = tasks.filter(t => t.category === category);
@@ -3735,7 +3736,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
   // Save daily average and category averages when toggling
   useEffect(() => {
     const saveCategoryAverages = () => {
-      const todayISO = getLocalDateStr();
+      const todayISO = getLocalDateStr(new Date(), appTimeZone);
       const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
       if (usedCategories.length === 0) return;
       
@@ -3755,8 +3756,8 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
       localStorage.setItem('progressHistory', JSON.stringify(history));
     };
     
-    saveCategoryAverages();
-  }, [tasks, refreshKey]);
+saveCategoryAverages();
+   }, [tasks, refreshKey, appTimeZone]);
 
   const cumulativeAvg = getCumulativeAverage();
   const weeklyAvg = getWeeklyAverage();
