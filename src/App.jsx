@@ -4,7 +4,6 @@ import { supabase } from "./supabase";
 import {
   addDaysToDateStr,
   formatMonthDayDateStr,
-  getDateStrDaysAgo,
   getDateStrForWeekday,
   getDateStrFromValue,
   getLocalDateStr,
@@ -40,7 +39,6 @@ export default function App() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [friends, setFriends] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -243,7 +241,6 @@ function OnboardingChoose({ archetypes, onSelect, onBack }) {
 }
 
 function TemplateEditor({ archetype, habits, onUpdate, onAdd, onRemove, onSave, onBack, isSaving, identities = [], onAddIdentity, onRemoveIdentity, onCreateIdentity, categories = [] }) {
-  const [newIdentityName, setNewIdentityName] = useState("");
   const [showAddIdentity, setShowAddIdentity] = useState(false);
   
   return (
@@ -408,7 +405,6 @@ function GlowApp({ session }) {
   const [archetypes, setArchetypes] = useState([]);
   const [userName, setUserName] = useState("");
   const [showProfileEdit, setShowProfileEdit] = useState(false);
-  const [friends, setFriends] = useState([]);
   const [selectedAvatar, setSelectedAvatar] = useState(() => localStorage.getItem('selectedAvatar') || null);
   
   // Avatar tiers based on glow points
@@ -429,11 +425,10 @@ function GlowApp({ session }) {
   const [showProfile, setShowProfile] = useState(false);
   const [showAvatarSelector, setShowAvatarSelector] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
-  const [showAddIdentity, setShowAddIdentity] = useState(false);
-  const [showArchetypeModal, setShowArchetypeModal] = useState(false);
+  const [_showAddIdentity, setShowAddIdentity] = useState(false);
   const [selectedArchetype, setSelectedArchetype] = useState(null);
   const [expandedDay, setExpandedDay] = useState(null);
-  const [showFrictionModal, setShowFrictionModal] = useState(false);
+  const [_showFrictionModal, setShowFrictionModal] = useState(false);
   const [frictionTask, setFrictionTask] = useState(null);
   const [frictionReason, setFrictionReason] = useState("");
   const [isAdopting, setIsAdopting] = useState(false);
@@ -445,13 +440,13 @@ function GlowApp({ session }) {
   const [showDailyRecap, setShowDailyRecap] = useState(false);
   const [recapData, setRecapData] = useState({ earned: 0, penalty: 0, total: 0 });
   
-  // Edit habit state
+// Edit habit state
   const [showEditHabit, setShowEditHabit] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
-  
+
   // Onboarding state
   const [onboardingStep, setOnboardingStep] = useState(null);
-  const [isEditingArchetype, setIsEditingArchetype] = useState(false);
+  const [_isEditingArchetype, setIsEditingArchetype] = useState(false);
   const [templateHabits, setTemplateHabits] = useState([]);
   const [templateIdentities, setTemplateIdentities] = useState([]);
   
@@ -467,10 +462,6 @@ function GlowApp({ session }) {
     }
   }, [session]);
   
-  // Tooltip state
-  const [showTooltip, setShowTooltip] = useState(null);
-  const [tooltipTarget, setTooltipTarget] = useState(null);
-  
   // Active archetype profile
   const [activeArchetype, setActiveArchetype] = useState(() => {
     const saved = localStorage.getItem('activeArchetype');
@@ -481,16 +472,14 @@ function GlowApp({ session }) {
   const [showAllTasks, setShowAllTasks] = useState(true);
 
   // Track which archetypes user has adopted
-  const [adoptedArchetypes, setAdoptedArchetypes] = useState(() => {
+const [adoptedArchetypes, setAdoptedArchetypes] = useState(() => {
     const saved = localStorage.getItem('adoptedArchetypes');
     return saved ? uniqueById(JSON.parse(saved)) : [];
   });
    
-   // Force refresh after task toggle
+// Force refresh after task toggle
   const [refreshKey, setRefreshKey] = useState(0);
   const [challengeRefreshKey, setChallengeRefreshKey] = useState(0);
-  
-  // Update glow display when refreshKey changes
   const [glowDisplayKey, setGlowDisplayKey] = useState(0);
   useEffect(() => {
     setGlowDisplayKey(prev => prev + 1);
@@ -500,7 +489,7 @@ function GlowApp({ session }) {
   const DEBUG_DISABLE_MIDNIGHT = false;
   const appTimeZone = getUserTimeZone();
   
-  const [showHowItWorks, setShowHowItWorks] = useState(false);
+const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [editingCategoryIdentities, setEditingCategoryIdentities] = useState(null);
   
   // Categories
@@ -566,12 +555,10 @@ function GlowApp({ session }) {
   
   // Form states
   const [newTask, setNewTask] = useState("");
-  const [taskCategory, setTaskCategory] = useState(() => defaultCategories[0] || "Health");
-  const [taskTime, setTaskTime] = useState("09:00");
-  const [taskDay, setTaskDay] = useState("Today");
-  const [isAllDay, setIsAllDay] = useState(false);
+  const [taskCategory] = useState(() => defaultCategories[0] || "Health");
+  const [taskDay] = useState("Today");
   const [identityTags, setIdentityTags] = useState([]);
-  const [twoMinVersion, setTwoMinVersion] = useState("");
+  const [, setTwoMinVersion] = useState("");
   
   // Identity form
   const [newIdentityName, setNewIdentityName] = useState("");
@@ -735,50 +722,9 @@ function GlowApp({ session }) {
       clearTimeout(midnightTimer);
       window.removeEventListener('focus', runDailyReset);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
+};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appTimeZone, session?.user?.id]);
-  
-  // Helper to safely parse days JSON
-  const parseDays = (daysValue) => {
-    if (!daysValue) return [];
-    if (Array.isArray(daysValue)) return daysValue;
-    if (typeof daysValue === 'string') {
-      try { return JSON.parse(daysValue); } catch (e) { return []; }
-    }
-    return [];
-  };
-
-  // Format time to AM/PM
-  const formatTime = (timeStr) => {
-    if (!timeStr) return '';
-    const [hours, mins] = timeStr.split(':');
-    const h = parseInt(hours, 10);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    return `${h12}:${mins || '00'} ${ampm}`;
-  };
-
-  // Get time of day category
-  const getTimeOfDay = (timeStr) => {
-    if (!timeStr) return 'All Day';
-    const hours = parseInt(timeStr.split(':')[0], 10);
-    if (hours < 12) return 'Morning';
-    if (hours < 17) return 'Afternoon';
-    return 'Evening';
-  };
-
-  // Sort tasks by time
-  const sortByTime = (tasks) => {
-    return [...tasks].sort((a, b) => {
-      if (a.is_all_day && !b.is_all_day) return 1;
-      if (!a.is_all_day && b.is_all_day) return -1;
-      if (!a.time && !b.time) return 0;
-      if (!a.time) return 1;
-      if (!b.time) return -1;
-      return a.time.localeCompare(b.time);
-    });
-  };
   
   const defaultIdentities = [
     { id: 'DISCIPLINED', name: 'Disciplined', emoji: '🎯' },
@@ -976,7 +922,7 @@ function GlowApp({ session }) {
       const result = await supabase.from("daylogs").select("*").limit(10);
       logError("DayLogs.select", result);
       setDayLogs(result.data || []);
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
 
     try {
       // Get all completion logs (remove user filter for now)
@@ -1007,26 +953,13 @@ function GlowApp({ session }) {
       const result = await identitiesQuery;
       logError("identities.select", result);
       setIdentities(result.data || []);
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
 
     try {
       const result = await supabase.from("archetypes").select("*");
       logError("archetypes.select", result);
       setArchetypes(result.data || []);
-    } catch (e) { /* ignore */ }
-  }
-
-  async function adoptArchetype(archetype) {
-    setSelectedArchetype(archetype);
-    setTemplateHabits(archetype.template_habits || []);
-    // Set default identities from archetype
-    if (archetype.default_identities && archetype.default_identities.length > 0) {
-      setTemplateIdentities(archetype.default_identities.map(name => ({ name, emoji: '✨' })));
-    } else {
-      setTemplateIdentities([]);
-    }
-    setShowArchetypeModal(false);
-    setOnboardingStep('template');
+    } catch { /* ignore */ }
   }
 
   async function saveTemplateAndFinish() {
@@ -1548,7 +1481,7 @@ function GlowApp({ session }) {
       await supabase.from('user_profiles').update({
         partner_progress: progressData
       }).eq('id', session?.user?.id);
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   };
   
   // Share data when page loads and on changes
@@ -1601,51 +1534,6 @@ function GlowApp({ session }) {
     setFrictionTask(null);
     setFrictionReason("");
     setShowGlowAnimation(true);
-    loadData();
-  }
-
-  async function submitWithReason() {
-    if (!frictionTask) return;
-
-    await supabase.from("completion_logs").insert({
-      task_id: frictionTask.id,
-      identity_id: frictionTask.identity_tags?.[0] || null,
-      user_id: session?.user?.id,
-      was_two_minute: false,
-      friction_reason: frictionReason,
-    });
-
-    await supabase
-      .from("tasks")
-      .update({ completed: true })
-      .eq("id", frictionTask.id);
-
-    setShowFrictionModal(false);
-    setFrictionTask(null);
-    setFrictionReason("");
-    setShowGlowAnimation(true);
-    loadData();
-  }
-
-  async function skipHabit() {
-    if (!frictionTask) return;
-
-    await supabase.from("completion_logs").insert({
-      task_id: frictionTask.id,
-      identity_id: frictionTask.identity_tags?.[0] || null,
-      user_id: session?.user?.id,
-      was_two_minute: false,
-      friction_reason: frictionReason || "skipped",
-    });
-
-    await supabase
-      .from("tasks")
-      .update({ completed: false })
-      .eq("id", frictionTask.id);
-
-    setShowFrictionModal(false);
-    setFrictionTask(null);
-    setFrictionReason("");
     loadData();
   }
 
@@ -2721,10 +2609,6 @@ function GlowApp({ session }) {
               <div className="stat-card">
                 <span className="stat-value">{tasks.length}</span>
                 <span className="stat-label">Habits</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-value">{friends.length}</span>
-                <span className="stat-label">Friends</span>
               </div>
             </div>
             
