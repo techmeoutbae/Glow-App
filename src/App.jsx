@@ -30,6 +30,8 @@ const uniqueById = (items = []) => {
   });
 };
 
+const SCORE_RESET_VERSION = "2026-08-09-fresh-score-baseline";
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -580,7 +582,7 @@ function GlowApp({ session }) {
   const [newTodo, setNewTodo] = useState("");
   const [todoCategory, setTodoCategory] = useState(() => defaultCategories[0] || "Health");
   const [todos, setTodos] = useState(() => {
-    const today = getLocalDateStr();
+    const today = getLocalDateStr(new Date(), appTimeZone);
     const saved = localStorage.getItem(`dailyTodos_${today}`);
     return saved ? JSON.parse(saved) : [];
   });
@@ -597,7 +599,7 @@ function GlowApp({ session }) {
   const days = ["Today", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   
   // Calculate end-of-day penalty for yesterday's incomplete tasks
-  const calculateEndOfDayPenalty = (dateISO = addDaysToDateStr(getLocalDateStr(), -1)) => {
+  const calculateEndOfDayPenalty = (dateISO = addDaysToDateStr(getLocalDateStr(new Date(), appTimeZone), -1)) => {
     const yesterdayISO = dateISO;
     const yesterdayName = getWeekdayNameForDateStr(yesterdayISO);
     
@@ -638,6 +640,58 @@ function GlowApp({ session }) {
     const penalties = JSON.parse(localStorage.getItem('dailyPenalties') || '{}');
     return penalties[dateISO] || 0;
   };
+
+  async function resetScoresAndAveragesForFreshStart(userId) {
+    if (!userId) return;
+
+    const resetKey = `scoreResetVersion_${userId}`;
+    if (localStorage.getItem(resetKey) === SCORE_RESET_VERSION) return;
+
+    const today = getLocalDateStr(new Date(), appTimeZone);
+    const keysToRemove = [];
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (
+        key?.startsWith('task_completed_') ||
+        key?.startsWith('daily_average_') ||
+        (key?.startsWith('dailyTodos_') && key !== `dailyTodos_${today}`)
+      ) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+
+    const todayTodos = JSON.parse(localStorage.getItem(`dailyTodos_${today}`) || '[]');
+    if (todayTodos.length > 0) {
+      const resetTodos = todayTodos.map(todo => ({ ...todo, completed: false }));
+      localStorage.setItem(`dailyTodos_${today}`, JSON.stringify(resetTodos));
+      setTodos(resetTodos);
+    }
+
+    localStorage.setItem('accountStartDate', today);
+    localStorage.setItem('lastResetDate', today);
+    localStorage.setItem('lastRecapDate', today);
+    localStorage.setItem('progressHistory', JSON.stringify({}));
+    localStorage.setItem('glowPointsHistory', JSON.stringify({}));
+    localStorage.setItem('dailyPenalties', JSON.stringify({}));
+    localStorage.setItem('bonusGlowPoints', '0');
+    localStorage.removeItem('debugStreakDays');
+    localStorage.setItem(resetKey, SCORE_RESET_VERSION);
+
+    try {
+      await supabase.from('user_profiles').upsert({
+        id: userId,
+        email: session?.user?.email,
+        account_start_date: today,
+        total_glow_points: 0,
+        partner_progress: {}
+      }, { onConflict: 'id' });
+    } catch (err) {
+      console.error('score reset sync error:', err);
+    }
+  }
    
   // Midnight reset - runs at 12:00 AM in the user's timezone, falling back to EST.
   useEffect(() => {
@@ -854,6 +908,10 @@ function GlowApp({ session }) {
   async function loadData() {
     const userId = session?.user?.id;
     const userEmail = session?.user?.email;
+
+    if (userId) {
+      await resetScoresAndAveragesForFreshStart(userId);
+    }
     
     // Only set account start date if not already set (don't overwrite signup date)
     if (!localStorage.getItem('accountStartDate')) {
@@ -1465,7 +1523,6 @@ function GlowApp({ session }) {
   
   // Share progress with accountability partner
   const shareWithPartner = async () => {
-    const today = getLocalDateStr();
     const partnerId = localStorage.getItem('accountabilityPartner');
     if (!partnerId) return;
     
@@ -1870,8 +1927,8 @@ function GlowApp({ session }) {
 
   // Calculate category progress based on localStorage completion
   const getCategoryProgress = (category) => {
-    const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-    const todayISO = getLocalDateStr();
+    const today = getWeekdayName(new Date(), appTimeZone);
+    const todayISO = getLocalDateStr(new Date(), appTimeZone);
     const categoryTasks = tasks.filter(t => {
       if (t.category !== category) return false;
       const taskDays = typeof t.days === 'string' ? JSON.parse(t.days) : t.days;
@@ -1943,12 +2000,12 @@ function GlowApp({ session }) {
 
   const pageTasks = getPageTasks();
   
-  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const todayName = getWeekdayName(new Date(), appTimeZone);
   const today = todayName;
 
   const todayLogs = dayLogs.filter(l => {
-    const logDate = new Date(l.date).toDateString();
-    return logDate === new Date().toDateString();
+    const logDate = getDateStrFromValue(l.date, appTimeZone);
+    return logDate === getLocalDateStr(new Date(), appTimeZone);
   });
 
   return (
@@ -2828,10 +2885,7 @@ function GlowApp({ session }) {
 
 // Home Page Component
 function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggleTask, onDeleteTask, onEditTask, categoriesList = ["Health", "Mindset", "Finances", "Beauty"], refreshKey, todos = [], onAddTodo, onToggleTodo, onDeleteTodo, newTodo, setNewTodo, todoCategory, setTodoCategory, showTodoList, setShowTodoList, getGlowScore }) {
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
+  const today = getWeekdayName();
    
   const getCompletedTaskIds = () => {
     const today = getLocalDateStr();
@@ -2902,15 +2956,8 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
 
   // Calculate weekly average - average of ALL habits for current week (Mon-Sun)
   const getWeeklyAverage = () => {
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
-    const dayOfWeek = todayDate.getDay();
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    
-    // Get Monday of current week
-    const monday = new Date(todayDate);
-    monday.setDate(todayDate.getDate() + mondayOffset);
-    monday.setHours(0, 0, 0, 0);
+    const todayDateStr = getLocalDateStr();
+    const mondayDateStr = getStartOfWeekDateStr();
     
     // Calculate average for each day of the week (Mon-Sun)
     let totalProgress = 0;
@@ -2921,14 +2968,12 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
     
     // Loop through each day of the week
     for (let i = 0; i < 7; i++) {
-      const dayDate = new Date(monday);
-      dayDate.setDate(monday.getDate() + i);
+      const dayStr = addDaysToDateStr(mondayDateStr, i);
       
       // Skip future days
-      if (dayDate > todayDate) continue;
+      if (dayStr > todayDateStr) continue;
       
-      const dayStr = getLocalDateStr(dayDate);
-      const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
+      const dayName = getWeekdayNameForDateStr(dayStr);
       
       // Get tasks for this day
       const dayTasks = tasks.filter(t => {
@@ -2958,11 +3003,6 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
     const accountStartDate = localStorage.getItem('accountStartDate');
     if (!accountStartDate) return 0;
     
-    const [year, month, day] = accountStartDate.split('-').map(Number);
-    const startDate = new Date(year, month - 1, day);
-    startDate.setHours(0, 0, 0, 0);
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
     const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
     if (usedCategories.length === 0) return 0;
     
@@ -2970,9 +3010,12 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
     let daysWithTasks = 0;
     
     // Loop through every day from signup to today
-    for (let d = new Date(startDate); d <= todayDate; d.setDate(d.getDate() + 1)) {
-      const dayStr = getLocalDateStr(d);
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+    for (
+      let dayStr = accountStartDate, todayDateStr = getLocalDateStr();
+      dayStr <= todayDateStr;
+      dayStr = addDaysToDateStr(dayStr, 1)
+    ) {
+      const dayName = getWeekdayNameForDateStr(dayStr);
       
       // Get tasks for this day
       const dayTasks = tasks.filter(t => {
@@ -3000,14 +3043,11 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
   // Calculate streak - only counts if ALL daily habits are completed
   const getStreak = () => {
     let streak = 0;
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
+    const todayDateStr = getLocalDateStr();
     
     for (let i = 0; i < 365; i++) {
-      const date = new Date(todayDate);
-      date.setDate(todayDate.getDate() - i);
-      const dateStr = getLocalDateStr(date);
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      const dateStr = addDaysToDateStr(todayDateStr, -i);
+      const dayName = getWeekdayNameForDateStr(dateStr);
       
       // Get tasks for this specific day
       const tasksForDay = tasks.filter(t => {
@@ -3186,21 +3226,10 @@ function HomePage({ tasks, activeArchetype, identities, completionLogs, onToggle
 
 // Habits Page Component
 function HabitsPage({ tasks, adoptedArchetypes, activeArchetype, setActiveArchetype, showAddHabit, setShowAddHabit, onAddHabit, onToggleTask, onDeleteTask, onEditTask, categoriesList, days, identityOptions, setExpandedDay, expandedDay, pageTasks, showAllTasks, setShowAllTasks, refreshKey, customCategories, setCustomCategories, defaultCategories }) {
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  const todayDate = new Date().toDateString();
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
+  const today = getWeekdayName();
 
   const getDateForDay = (dayName) => {
-    const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
-    const targetDay = daysMap[dayName];
-    const todayObj = new Date();
-    const currentDay = todayObj.getDay();
-    const diff = (targetDay - currentDay + 7) % 7;
-    const result = new Date(todayObj);
-    result.setDate(todayObj.getDate() + diff);
-    return getLocalDateStr(result);
+    return getDateStrForWeekday(dayName);
   };
 
   const isCompletedOnDay = (taskId, dayName) => {
@@ -3475,17 +3504,12 @@ function AddHabitModal({ onClose, onAdd, categories, days, identityOptions, onAd
 
 // Insights Page Component
 function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey, identities = [] }) {
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  
-  // Helper: get local date string
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
+  const today = getWeekdayName();
   
   // Get identity score (points earned from tasks with this identity tag)
   const getIdentityScore = (identityId) => {
     const todayISO = getLocalDateStr();
-    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const todayName = getWeekdayName();
     
     const completedWithIdentity = tasks.filter(t => {
       if (t.is_all_day) return true;
@@ -3512,7 +3536,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
   
   // Save daily average to localStorage
   const saveDailyAverage = () => {
-    const todayISO = getLocalDateStr();
+    const todayISO = getLocalDateStr(new Date(), appTimeZone);
     const dailyLogKey = `daily_average_${todayISO}`;
     
     // Calculate today's glow score
@@ -3548,17 +3572,18 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
     const accountStartDate = localStorage.getItem('accountStartDate');
     if (!accountStartDate) return 0;
     
-    const startDate = new Date(accountStartDate);
-    const today = new Date();
     const usedCategories = [...new Set(tasks.map(t => t.category).filter(Boolean))];
     if (usedCategories.length === 0) return 0;
     
     let totalProgress = 0;
     let daysWithTasks = 0;
     
-    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
-      const dayStr = getLocalDateStr(d);
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+    for (
+      let dayStr = accountStartDate, todayDateStr = getLocalDateStr();
+      dayStr <= todayDateStr;
+      dayStr = addDaysToDateStr(dayStr, 1)
+    ) {
+      const dayName = getWeekdayNameForDateStr(dayStr);
       
       const dayTasks = tasks.filter(t => {
         if (!t.is_all_day) {
@@ -3583,13 +3608,8 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
 
   // Calculate weekly average - average of ALL habits for current week
   const getWeeklyAverage = () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + mondayOffset);
-    monday.setHours(0, 0, 0, 0);
+    const todayDateStr = getLocalDateStr();
+    const mondayDateStr = getStartOfWeekDateStr();
     
     let totalProgress = 0;
     let daysWithTasks = 0;
@@ -3598,13 +3618,11 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
     if (usedCategories.length === 0) return 0;
     
     for (let i = 0; i < 7; i++) {
-      const dayDate = new Date(monday);
-      dayDate.setDate(monday.getDate() + i);
+      const dayStr = addDaysToDateStr(mondayDateStr, i);
       
-      if (dayDate > today) continue;
+      if (dayStr > todayDateStr) continue;
       
-      const dayStr = getLocalDateStr(dayDate);
-      const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' });
+      const dayName = getWeekdayNameForDateStr(dayStr);
       
       const dayTasks = tasks.filter(t => {
         if (!t.is_all_day) {
@@ -3630,15 +3648,12 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
   // Calculate monthly average (last 30 days)
   const getMonthlyAverage = () => {
     const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
+    const todayDateStr = getLocalDateStr();
     let total = 0;
     let count = 0;
     
     for (let i = 0; i < 30; i++) {
-      const date = new Date(todayDate);
-      date.setDate(todayDate.getDate() - i);
-      const dateStr = getLocalDateStr(date);
+      const dateStr = addDaysToDateStr(todayDateStr, -i);
       if (history[dateStr] !== undefined) {
         total += history[dateStr];
         count++;
@@ -3687,8 +3702,6 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
 
   // Get category progress based on time period
   const getCategoryProgressByPeriod = (category, period) => {
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
     const todayISO = getLocalDateStr();
     const history = JSON.parse(localStorage.getItem('progressHistory') || '{}');
     
@@ -3708,9 +3721,7 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
     const days = period === 'week' ? 7 : period === 'month' ? 30 : 365;
     
     for (let i = 0; i < days; i++) {
-      const date = new Date(todayDate);
-      date.setDate(todayDate.getDate() - i);
-      const dateStr = getLocalDateStr(date);
+      const dateStr = addDaysToDateStr(todayISO, -i);
       const categoryKey = `category_${category}_${dateStr}`;
       if (history[categoryKey] !== undefined) {
         total += history[categoryKey];
@@ -3839,20 +3850,33 @@ function InsightsPage({ tasks, completionLogs, categoriesList, days, refreshKey,
 
 // Growth Page Component
 function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeArchetype, adoptedArchetypes, getIdentityEmoji }) {
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const getFallbackIdentities = (archetype) => {
+    const names = archetype?.default_identities || [];
+    return names.filter(Boolean).map(name => ({
+      id: `fallback-${archetype.id}-${name}`,
+      name,
+      emoji: getIdentityEmoji({ name }),
+      archetype_id: archetype.id,
+      isFallback: true
+    }));
   };
   
-  let displayIdentities = identities;
+  let displayIdentities = [];
+  const relevantArchetypes = activeArchetype
+    ? [activeArchetype]
+    : (adoptedArchetypes || []);
+  const relevantIds = relevantArchetypes.map(arch => arch.id);
   
   if (activeArchetype) {
     displayIdentities = identities.filter(id => id.archetype_id === activeArchetype.id);
   } else if (adoptedArchetypes?.length > 0) {
-    const adoptedIds = adoptedArchetypes.map(a => a.id);
-    displayIdentities = identities.filter(id => adoptedIds.includes(id.archetype_id));
-  } else {
-    displayIdentities = [];
+    displayIdentities = identities.filter(id => relevantIds.includes(id.archetype_id));
   }
+
+  displayIdentities = [
+    ...displayIdentities,
+    ...relevantArchetypes.flatMap(getFallbackIdentities)
+  ];
   
   const seen = new Set();
   displayIdentities = displayIdentities.filter(id => {
@@ -3912,7 +3936,7 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
 
   const getIdentityProgress = (identityId, identityName) => {
     const todayISO = getLocalDateStr();
-    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const todayName = getWeekdayName();
     
     const completedWithIdentity = tasks.filter(t => {
       if (t.is_all_day) return true;
@@ -4063,9 +4087,6 @@ function GrowthPage({ identities, tasks, completionLogs, categoriesList, activeA
 
 // Community Page Component
 function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalGlowPoints }) {
-  const getLocalDateStr = (date = new Date()) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
   const [activeTab, setActiveTab] = useState('friends');
   const [friends, setFriends] = useState([]);
   const [friendEmail, setFriendEmail] = useState('');
@@ -4123,18 +4144,29 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
     'Self Care': 7,
     'Journal Queen': 14
   };
+
+  const getChallengeWindowDateStrs = (durationDays, joinedAt = null) => {
+    const todayDateStr = getLocalDateStr();
+    const startDateStr = joinedAt
+      ? getDateStrFromValue(joinedAt)
+      : addDaysToDateStr(todayDateStr, -(durationDays - 1));
+    const dates = [];
+
+    for (let i = 0; i < durationDays; i++) {
+      const dateStr = addDaysToDateStr(startDateStr, i);
+      if (dateStr > todayDateStr) break;
+      dates.push(dateStr);
+    }
+
+    return dates;
+  };
   
   // Calculate days completed for streak challenges (7-Day, 30-Day)
-  const calculateDaysCompleted = (durationDays) => {
+  const calculateDaysCompleted = (durationDays, joinedAt = null) => {
     const completedDays = [];
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
     
-    for (let i = 0; i < durationDays; i++) {
-      const date = new Date(todayDate);
-      date.setDate(todayDate.getDate() - i);
-      const dateStr = getLocalDateStr(date);
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+    for (const dateStr of getChallengeWindowDateStrs(durationDays, joinedAt)) {
+      const dayName = getWeekdayNameForDateStr(dateStr);
       
       // Get habits for this day
       const dayTasks = tasks.filter(t => {
@@ -4159,16 +4191,11 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
   };
   
   // Calculate days completed for keyword-based challenges
-  const calculateKeywordDaysCompleted = (keywords, durationDays) => {
+  const calculateKeywordDaysCompleted = (keywords, durationDays, joinedAt = null) => {
     const completedDays = [];
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
     
-    for (let i = 0; i < durationDays; i++) {
-      const date = new Date(todayDate);
-      date.setDate(todayDate.getDate() - i);
-      const dateStr = getLocalDateStr(date);
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+    for (const dateStr of getChallengeWindowDateStrs(durationDays, joinedAt)) {
+      const dayName = getWeekdayNameForDateStr(dateStr);
       
       // Get matching habits for this day
       const dayTasks = tasks.filter(t => {
@@ -4197,15 +4224,15 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
   };
   
   // Calculate challenge progress
-  const calculateChallengeProgress = (challengeTitle) => {
+  const calculateChallengeProgress = (challengeTitle, joinedAt = null) => {
     const today = getLocalDateStr();
-    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const todayName = getWeekdayName();
     const keywords = challengeKeywords[challengeTitle] || [];
     const duration = challengeDurations[challengeTitle] || 7;
     
     // Handle 7-Day and 30-Day Glow challenges
     if (challengeTitle === '7-Day Glow' || challengeTitle === '30-Day Glow Up') {
-      const daysCompleted = calculateDaysCompleted(duration);
+      const daysCompleted = calculateDaysCompleted(duration, joinedAt);
       
       return {
         daysCompleted,
@@ -4236,7 +4263,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
     ).length;
     
     // Calculate days completed for keyword-based challenges
-    const daysCompleted = calculateKeywordDaysCompleted(keywords, duration);
+    const daysCompleted = calculateKeywordDaysCompleted(keywords, duration, joinedAt);
     
     return {
       total: matchingHabits.length,
@@ -4249,9 +4276,9 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
   };
   
   // Get detailed challenge info including matching habits
-  const getChallengeDetails = (challenge) => {
+  const getChallengeDetails = (challenge, joinedAt = null) => {
     const today = getLocalDateStr();
-    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const todayName = getWeekdayName();
     const keywords = challengeKeywords[challenge.title] || [];
     const isStreak = challenge.title === '7-Day Glow' || challenge.title === '30-Day Glow Up';
     const duration = challengeDurations[challenge.title] || challenge.duration_days || 7;
@@ -4292,11 +4319,9 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
     
     // Calculate day-by-day progress
     const dayHistory = [];
-    for (let i = 0; i < duration; i++) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = getLocalDateStr(date);
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+    const challengeDates = getChallengeWindowDateStrs(duration, joinedAt);
+    for (const dateStr of challengeDates) {
+      const dayName = getWeekdayNameForDateStr(dateStr);
       
       let dayTotal = 0;
       let dayCompleted = 0;
@@ -4330,11 +4355,11 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
       
       dayHistory.push({
         date: dateStr,
-        dayName: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        dayName: formatMonthDayDateStr(dateStr),
         total: dayTotal,
         completed: dayCompleted,
         percentage: dayTotal > 0 ? Math.round((dayCompleted / dayTotal) * 100) : 0,
-        isToday: i === 0
+        isToday: dateStr === today
       });
     }
     
@@ -4346,7 +4371,7 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
       todayCompletion,
       todayTotal,
       dayHistory,
-      daysCompleted: challengeProgress[challenge.id]?.daysCompleted || 0
+      daysCompleted: calculateChallengeProgress(challenge.title, joinedAt)?.daysCompleted || 0
     };
   };
   
@@ -4380,7 +4405,10 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
   const [showPartnerSelect, setShowPartnerSelect] = useState(false);
   
   // Accountability groups
-  const [groups, setGroups] = useState([]);
+  const [groups, setGroups] = useState(() => {
+    const saved = localStorage.getItem('accountabilityGroups');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [selectedGroupMembers, setSelectedGroupMembers] = useState([]);
@@ -4420,6 +4448,11 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
     
     return () => clearInterval(refreshInterval);
   }, []);
+
+  useEffect(() => {
+    loadChallenges();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friends.length]);
 
   // Load partner data when partners change
   useEffect(() => {
@@ -4465,6 +4498,9 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
     if (receivedNudges?.length) {
       setNudgeCount(receivedNudges.length);
       setNudges(receivedNudges);
+    } else {
+      setNudgeCount(0);
+      setNudges([]);
     }
   }
 
@@ -4519,6 +4555,9 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
         };
       });
       setFriendGlowScores(scores);
+    } else {
+      setFriends([]);
+      setFriendGlowScores({});
     }
     
     // Load pending requests
@@ -4535,6 +4574,8 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
         .select('*')
         .in('id', requesterIds);
       setFriendRequests(profiles || []);
+    } else {
+      setFriendRequests([]);
     }
   }
 
@@ -4551,11 +4592,14 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
         .select('*')
         .eq('challenge_id', challenge.id);
       
-      const { data: friendParticipants } = await supabase
-        .from('challenge_participants')
-        .select('*')
-        .eq('challenge_id', challenge.id)
-        .in('user_id', friends.map(f => f.id));
+      const friendIds = friends.map(f => f.id);
+      const { data: friendParticipants } = friendIds.length > 0
+        ? await supabase
+            .from('challenge_participants')
+            .select('*')
+            .eq('challenge_id', challenge.id)
+            .in('user_id', friendIds)
+        : { data: [] };
       
       return {
         ...challenge,
@@ -4594,6 +4638,8 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
         profile: profiles?.find(p => p.id === s.user_id)
       }));
       setLeaderboard(merged);
+    } else {
+      setLeaderboard([]);
     }
   }
   
@@ -4628,14 +4674,19 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
   }
   
   async function restartChallenge(joinId) {
+    if (!confirm('Restart this challenge from today? Your previous challenge window will be cleared.')) return;
+
     const { error } = await supabase
       .from('challenge_participants')
       .update({ joined_at: new Date().toISOString() })
       .eq('id', joinId);
     
     if (!error) {
-      loadChallenges();
+      await loadChallenges();
       setShowChallengeFailed(null);
+      setSelectedChallengeDetail(null);
+    } else {
+      alert('Could not restart challenge. Please try again.');
     }
   }
   
@@ -5221,8 +5272,9 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
                     'Self Care': '💆',
                     'Journal Queen': '📓'
                   };
-                  const progress = challengeProgress[challenge.id] || { percentage: 0, completed: 0, total: 0, daysCompleted: 0, totalDays: 7 };
-                  const daysLeft = Math.max(0, challenge.duration_days - Math.floor((Date.now() - new Date(join.joined_at).getTime()) / (1000 * 60 * 60 * 24)));
+                  const progress = calculateChallengeProgress(challenge.title, join.joined_at) || { percentage: 0, completed: 0, total: 0, daysCompleted: 0, totalDays: challenge.duration_days || 7 };
+                  const challengeDuration = challenge.duration_days || challengeDurations[challenge.title] || progress.totalDays || 7;
+                  const daysLeft = Math.max(0, challengeDuration - Math.floor((Date.now() - new Date(join.joined_at).getTime()) / (1000 * 60 * 60 * 24)));
                   const isStreakChallenge = progress.isStreakChallenge;
                   
                   return (
@@ -5251,6 +5303,15 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
                       ) : (
                         <p className="no-matching-habits">Add matching habits to track!</p>
                       )}
+                      <button
+                        className="button small restart-challenge-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          restartChallenge(join.id);
+                        }}
+                      >
+                        Restart
+                      </button>
                     </div>
                   );
                 })}
@@ -5333,9 +5394,9 @@ function CommunityPage({ session, tasks = [], challengeRefreshKey = 0, getTotalG
             </div>
             <div className="modal-content challenge-detail-content">
               {(() => {
-                const details = getChallengeDetails(selectedChallengeDetail.challenge);
+                const details = getChallengeDetails(selectedChallengeDetail.challenge, selectedChallengeDetail.join?.joined_at);
                 const challenge = selectedChallengeDetail.challenge;
-                const progress = challengeProgress[challenge.id] || { percentage: 0 };
+                const progress = calculateChallengeProgress(challenge.title, selectedChallengeDetail.join?.joined_at) || { percentage: 0 };
                 
                 return (
                   <>
